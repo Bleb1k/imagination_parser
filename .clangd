@@ -1,0 +1,2 @@
+CompileFlags:
+  Add: [-WALL, -Wextra, -I./deps/]

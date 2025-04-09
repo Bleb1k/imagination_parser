@@ -1,0 +1,69 @@
+#import "raylib"
+rand :: #import "random"
+
+// Vector2 :: #Vector 2 f32 // Vector2 is occupied by raylib :(
+Vec2 :: #Vector 2 i32 // Vector2 is Same as this, both in structure, size, alignment, etc, so values of type Vec2 should just fit into functions that ask for Vector2, but also this apparently would allow for more intricate optimisations or something idk :P
+  // lemme explain why I want this and how this makes sense
+  // What I think about is type deduplication, maybe it should be specified explicitly so to let compiler structure everything better etc
+  // since Vector2 is a structure, and Vec2 is an alias for #Vector 2 i32 they should not be aliaceable to each other, but they have same structure and size etc so it's not a big deal! So it could later on just be deduped! that's all!
+  // As per being more explicit, we could use keyword `alias`
+/*
+alias Vec2 Vector2 // that's all, this means that compiler will see those two as exactly the same type
+*/
+  // and if for example Vector2 had methods, they could share them, in this case you could call methods available to Vector2 from Vec2 but not other way around
+  // and you can't alias Types defined in another "module", whatever that means
+  // so you cant do `alias Vector2 Vec2`, this could lead to Vec2 overwriting some functions on Vector2
+  // and for `alias Vec2 Vector2`, if it overwrites some functions it should compile error too if language doesn't support parameter overloading (I hope it doesnt)
+
+// main could have several variations of types:
+// () -> void
+// (Arguments) -> void
+// () -> int
+// (Arguments) -> int
+main :: (args: Arguments) { // I like how C does its arg passing
+  _ := args // I like how zig forces to ignore unused variables
+  InitWindow(400 300 "Borked") // commas `,` are optional
+  defer CloseWindow
+
+  xy := () -> Vec2 { // return type is known, but body is ambiguous between struct and a code body, we choose the most likely in this case (struct)
+    rand.int 0 * 20 (GetRenderWidth / 2) // notice that multiplication doesn't have to have parentheses but division does
+    rand.int 0 (GetRenderHeight / 2) // parentheses are unused for rand.int
+  }
+  wh := Vector2 { // this is unambiguous
+    rand.int(0, GetRenderWidth / 2) // other way of calling
+    rand.int(0 GetRenderHeight / 2) // commas are still optional
+  }
+  while !WindowShouldClose { // parentheses are optional but that's reliant on context
+    BeginDrawing
+    DrawRectangleV xy wh // different types of values, yet it's possible
+    EndDrawing
+  }
+}
+
+// ----- version without comments -----
+
+#import "raylib"
+rand :: #import "random"
+
+Vec2 :: #Vector 2 i32
+
+main :: (args: Arguments) {
+  _ := args
+  InitWindow(400 300 "Borked")
+  defer CloseWindow
+
+  xy := () -> Vec2 {
+    rand.int 0 * 20 (GetRenderWidth / 2)
+    rand.int 0 (GetRenderHeight / 2)
+  }
+  wh := Vector2 {
+    rand.int 0 (GetRenderWidth / 2)
+    rand.int 0 (GetRenderHeight / 2)
+  }
+
+  while !WindowShouldClose {
+    BeginDrawing
+    DrawRectangleV xy wh
+    EndDrawing
+  }
+}

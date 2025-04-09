@@ -1,0 +1,75 @@
+// todo: find good highlighting
+
+// namespace pollution is bad, no `use std::*` for you
+rl :: #use "raylib"
+
+/*{ though runnign code in a global object is not possible, i'll put this example here...
+  // ...because i want to show that you can do that!
+  using rl;
+  initWindow(400, 600, "Code pollution GO!") // will error because
+  closeWindow()
+}*/
+
+Option :: (T: type) => union(enum) { none some: T }
+Option.is_some :: (self)
+
+Queue :: (T: type) => struct {
+  value: T
+  next: Option(Queue)
+}
+Queue.sort_algorithm: (*self) -> void; // Defined, but implementations should happen per type Queue. means that Queue with any (T: type) will return same Queue with same (T: type)
+Queue.sort :: (*self) => self.sort_algorithm();
+
+Queue(u8).sort_algorithm :: (*self) {
+  // how the fuck do you sort a queue ??? convert it into a list first? a binary tree? don't want to do this here
+}
+
+OpType :: enum {
+  Prefix
+  Postfix
+  Binary
+}
+
+fiz_buzz :: () {
+  for i in 0..100 switch 0 {
+    i % 15 => #print("FizzBuzz")
+    i % 5  => #print("Buzz")
+    i % 3  => #print("Fizz")
+    _ => {}
+  }
+}
+
+// ----------Str----------
+
+/// Alias - autogenerate struct with dereference for underneath type
+Utf8 :: struct {
+  data: [1..4]u8 // if 1..4 used as a type, it's limit, if as an index, it's a slise
+}
+string :: struct {
+  data: []Utf8
+}
+
+CStr :: struct {
+  data: []u8
+  terminator: u8: 0
+}
+
+// ----------Str----------
+// ----------Palindrome----------
+std :: use "std"
+io :: std.io
+
+is_palindrome :: (s: string) -> bool {
+  s_lower := s.to_lowercase()
+  return s_lower == s_lower.reversed()
+}
+
+#start main :: () {
+  #print()
+
+  str := #prompt("Right now we will test if given string is a palindrome\nEnter a string:")
+
+  #print("The line \"{str}\" {if is_palindrome(str) "is" else "isn't"} a palindrome!")
+}
+
+// ----------Palindrome----------

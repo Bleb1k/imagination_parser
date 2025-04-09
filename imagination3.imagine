@@ -1,0 +1,23 @@
+// 1. variables
+one: int: 1
+two: float: 0.2
+three: string: "III"
+yes: bool: true
+no: bool: false
+
+// 2. variables with type assumptions
+four :: 4
+five :: 0.5
+six :: "VI"
+is_it :: false
+
+// 3. math operations
+seven :: six + one
+eight :: five * two - 2
+nine :: three / 3 + eight
+
+// 4. functions
+give_one :: () => 1
+give_two :: () -> int {
+  return 2
+}
