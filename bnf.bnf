@@ -1,0 +1,52 @@
+<program> ::= <statement>*
+
+<statement> ::= <assignment> | <function_call>
+
+<assignment> ::= <implied_assignment>
+               | <expression_assignment>
+               | <value_assignment>
+               | <type_assignment>
+
+<implied_assignment> ::= <identifier> ("::" | ":=") <expression>
+<expression_assignment> ::= (<identifier> | <type_assignment>) (":" | "=") <expression>
+<value_assignment> ::= <identifier> "=" <value>
+<type_assignment> ::= <identifier> ":" <type>
+
+<special_identifier> ::= "#" <identifier>
+<identifier> ::= ([a-z] | [A-Z] | "_") ([a-z] | [A-Z] | [0-9] | "_")*
+
+<expression> ::= <type>
+               | <value>
+               | <function_definition>
+               | <code_block>
+
+<type> ::= <identifier>
+         | <function_type>
+         | <type_function_call>
+         | <literal>
+
+<value> ::= <identifier>
+          | <literal>
+          | <binary_expression>
+          | <unary_expression>
+          | <function_call>
+
+<function_definition> ::= <function_type> <code_block>
+
+<function_type> ::= "(" (<type_assignment> ("," <type_assignment>)*)? ")" ("->" ((<type> | <type_assignment>) " ")+)
+
+<code_block> ::= "{" <program> "}"
+
+<function_call> ::= (<identifier> | <special_identifier>) "(" (<value_assignment> ("," <value_assignment>)*)? ")"
+<type_function_call> ::= <identifier> "(" (<type_assignment> ("," <type_assignment>)*)? ")"
+
+<binary_expression> ::= <value> <binary_operator> <value>
+<binary_operator> ::= "+" | "-" | "*" | "/" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "||" | "&&"
+
+<unary_expression> ::= <unary_operator> <value>
+<unary_operator> ::= "!" | "-"
+
+<literal> ::= <integer> | <string> | <boolean>
+<integer> ::= [0-9]+
+<string> ::= "\"" "\""
+<boolean> ::= "true" | "false"
