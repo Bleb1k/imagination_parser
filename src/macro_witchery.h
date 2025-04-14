@@ -54,15 +54,16 @@
 #define ok_or_return(bool_val, ret_val)                                        \
   do {                                                                         \
     if (!(bool_val)) {                                                         \
-      nob_log(NOB_ERROR, "%s:%d: %s: Code is not okay\n", __FILE__, __LINE__,  \
-              __FUNCTION__);                                                   \
+      /*nob_log(NOB_ERROR, "%s:%d: %s: Code is not okay\n", __FILE__,          \
+         __LINE__,                                                             \
+                __FUNCTION__);*/                                               \
       return (ret_val);                                                        \
     }                                                                          \
   } while (0)
 
 #define PARSING_ERROR(...)                                                     \
   do {                                                                         \
-    char *types[] = {va_stringify(__VA_ARGS__)};                               \
+    char *types[] = {__VA_ARGS__};                                             \
     nob_log(NOB_ERROR, "%s:%d:%d  (%s:%d)\nFound: '%s'\nExpected one of:",     \
             (lexer)->source_file_path, lexer->line_count,                      \
             (lexer)->pos - (lexer)->last_newline_pos, __FILE__, __LINE__,      \
@@ -75,24 +76,58 @@
 
 #define consume_selection(lexer, ...)                                          \
   do {                                                                         \
+    choice_depth += 1;                                                         \
     TokenType types[] = {__VA_ARGS__};                                         \
     Token found = {0};                                                         \
     for (size_t i = 0; i < __NARG__(__VA_ARGS__); i++) {                       \
       if ((lexer)->current_token.type == types[i]) {                           \
         found = (lexer)->current_token;                                        \
+        printf("Found token with type:'%s', lexeme:'%s', at pos:'%d'\n",       \
+               token_type_to_string(found.type), found.lexeme,                 \
+               found.char_pos);                                                \
         lexer_next_token(lexer);                                               \
         break;                                                                 \
       }                                                                        \
     }                                                                          \
-    if (found.lexeme == NULL && found.type == TOKEN_NULL) {                    \
-      PARSING_ERROR(__VA_ARGS__);                                              \
+    if (!--choice_depth && found.lexeme == NULL && found.type == TOKEN_NULL) { \
+      PARSING_ERROR(va_stringify(__VA_ARGS__));                                \
     }                                                                          \
   } while (0)
 
 #define consume(lexer, ...) consume_selection(lexer, __VA_ARGS__)
+#define consume_str(lexer, ...)                                                \
+  do {                                                                         \
+    choice_depth += 1;                                                         \
+    const char *symbols[] = {__VA_ARGS__};                                     \
+    size_t pos = 0;                                                            \
+    for (size_t i = 0; i < __NARG__(__VA_ARGS__); i++) {                       \
+      Lexer copy = *(lexer);                                                   \
+      const char *sym = symbols[i];                                            \
+      size_t len = strlen(sym);                                                \
+      pos = 0;                                                                 \
+      while (pos < len) {                                                      \
+        /* printf("%s(%s)\n", token_type_to_string(copy.current_token.type),*/ \
+        /*copy.current_token.lexeme);*/                                        \
+        if (copy.current_token.type != TOKEN_SYMBOL ||                         \
+            copy.current_token.lexeme[0] != sym[pos]) {                        \
+          break;                                                               \
+        }                                                                      \
+        lexer_next_token(&copy);                                               \
+        pos++;                                                                 \
+      }                                                                        \
+      if (pos == len) {                                                        \
+        *(lexer) = copy;                                                       \
+        break;                                                                 \
+      }                                                                        \
+      if (i == (__NARG__(__VA_ARGS__) - 1) && !--choice_depth) {               \
+        PARSING_ERROR(__VA_ARGS__);                                            \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
 
 #define parse_(lexer, ast_node, ...)                                           \
   do {                                                                         \
+    choice_depth += 1;                                                         \
     AstNode (*parsers[])(Lexer *) = {PREPEND(parse_, __VA_ARGS__)};            \
     for (size_t i = 0; i < __NARG__(__VA_ARGS__); i++) {                       \
       Lexer lexer_copy = *(lexer);                                             \
@@ -102,7 +137,24 @@
         break;                                                                 \
       }                                                                        \
     }                                                                          \
-    if ((ast_node).type == NODE_NULL) {                                        \
-      PARSING_ERROR(__VA_ARGS__);                                              \
+    if (!--choice_depth && (ast_node).type == NODE_NULL) {                     \
+      PARSING_ERROR(va_stringify(__VA_ARGS__));                                \
     }                                                                          \
   } while (0)
+
+#define new_ast_node(Type, lexer)                                              \
+  ((AstNode){                                                                  \
+      .type = 0,                                                               \
+      .source = {.count = 0,                                                   \
+                 .items =                                                      \
+                     ((const char *)((lexer)->input.data + (lexer)->pos))},    \
+      .node = &(Type){0},                                                      \
+  })
+#define compose_ast_node(lexer, _node, node_type)                              \
+  ((AstNode){                                                                  \
+      .type = (node_type),                                                     \
+      .source = {.count = (int)(((lexer)->input.data + (lexer)->pos) -         \
+                                (_node).source.items),                         \
+                 .items = (_node).source.items},                               \
+      .node = (_node).node,                                                    \
+  })

@@ -14,6 +14,20 @@
 
 #include "./macro_witchery.h"
 
+// TODO: Use string_view for tokens and nodes properly
+// struct change is in place already, just fix that
+
+/* Tokenizer helper function */
+int is_str_here(const char *src, const char *needle) {
+  size_t len = strlen(needle) - 1;
+  for (size_t i = 0; i < len; i++) {
+    if (src[i] != needle[i]) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 typedef enum TokenType {
   // ----- special -----
   TOKEN_NULL,
@@ -28,19 +42,8 @@ typedef enum TokenType {
   TOKEN_FALSE,
   TOKEN_COMMENT, // unused
   // ----- single-character -----
-  TOKEN_COLON,
-  TOKEN_SEMICOLON,
-  TOKEN_LPAREN,
-  TOKEN_RPAREN,
-  TOKEN_COMMA,
-  TOKEN_PERIOD,
-  TOKEN_LBRACE,
-  TOKEN_RBRACE,
   TOKEN_CHAR,
-  TOKEN_ADD,
-  TOKEN_SUB,
-  TOKEN_DIV,
-  TOKEN_MUL,
+  TOKEN_SYMBOL,
 } TokenType;
 #define TOKEN_VALUE                                                            \
   TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_TRUE, TOKEN_FALSE
@@ -67,62 +70,41 @@ const char *token_type_to_string(TokenType type) {
     return "false";
   case TOKEN_COMMENT:
     return "comment";
-  case TOKEN_COLON:
-    return "colon";
-  case TOKEN_SEMICOLON:
-    return "semicolon";
-  case TOKEN_LPAREN:
-    return "lparen";
-  case TOKEN_RPAREN:
-    return "rparen";
-  case TOKEN_COMMA:
-    return "comma";
-  case TOKEN_PERIOD:
-    return "period";
-  case TOKEN_LBRACE:
-    return "lbrace";
-  case TOKEN_RBRACE:
-    return "rbrace";
   case TOKEN_CHAR:
     return "char";
-  case TOKEN_ADD:
-    return "add";
-  case TOKEN_SUB:
-    return "subtract";
-  case TOKEN_DIV:
-    return "divide";
-  case TOKEN_MUL:
-    return "multiply";
+  case TOKEN_SYMBOL:
+    return "symbol";
   default:
     return "unknown";
   }
 }
 
 typedef struct {
+  Nob_String_View lexeme;
   TokenType type;
-  char *lexeme;
+  int line;
 } Token;
 
 typedef struct {
   Nob_String_View input;
   char *source_file_path;
+  Token current_token;
   int pos;
   int last_newline_pos;
   int line_count;
-  Token current_token;
 } Lexer;
 
 void lexer_next_token(Lexer *lexer) {
-#define RETURN_TOKEN(TOK, VAL)                                                 \
+#define RETURN_TOKEN(TOK, VAL_FROM, VAL_TO)                                    \
   do {                                                                         \
-    lexer->current_token = (Token){(TOK), (VAL)};                              \
-    /*nob_log(NOB_INFO, "Parsed token '%s' (%s)", (char *)(VAL),*/             \
-    /*token_type_to_string((TOK)));*/                                          \
+    lexer->current_token =                                                     \
+        (Token){.lexeme = {0}, .type = TOKEN_NULL, .line = 0};                 \
+    /*nob_log(NOB_INFO, "Parsed token '%s' (%s)", (char *)(VAL),               \
+            token_type_to_string((TOK)));*/                                    \
     lexer->pos = cur_char - lexer->input.data;                                 \
   } while (0)
 
   const char *cur_char = lexer->input.data + lexer->pos;
-
   while (*cur_char == ' ' || *cur_char == '\t' || *cur_char == '\n') {
     if (*cur_char == '\n') {
       lexer->last_newline_pos = cur_char - lexer->input.data;
@@ -229,42 +211,19 @@ void lexer_next_token(Lexer *lexer) {
     return;
   }
 
-  // Handle single-character tokens
-  // TODO: remove TOKEN_<NAME> for single character tokens, simplify that
-  switch (*cur_char) {
-  case ':':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_COLON, ":");
+  if (is_str_here(cur_char, "->")) {
+    cur_char += 2;
+    RETURN_TOKEN(TOKEN_ARROW, "->");
     return;
-  case '(':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_LPAREN, "(");
+  }
+
+  if (is_str_here(cur_char, "=>")) {
+    cur_char += 2;
+    RETURN_TOKEN(TOKEN_ARROW_FAT, "=>");
     return;
-  case ')':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_RPAREN, ")");
-    return;
-  case ',':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_COMMA, ",");
-    return;
-  case '.':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_PERIOD, ".");
-    return;
-  case '{':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_LBRACE, "{");
-    return;
-  case '}':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_RBRACE, "}");
-    return;
-  case ';':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_SEMICOLON, ";");
-    return;
-  case '\'': {
+  }
+
+  if (*cur_char == '\'') {
     cur_char++;
     char c = *(cur_char++);
     if (*cur_char != '\'') {
@@ -275,36 +234,16 @@ void lexer_next_token(Lexer *lexer) {
     cur_char++;
     char *lexeme = nob_temp_alloc(2);
     lexeme[0] = c;
-    lexeme[1] = '\0';
+    lexeme[1] = 0;
     RETURN_TOKEN(TOKEN_CHAR, lexeme);
     return;
   }
-  case '+':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_ADD, "+");
-    return;
-  case '-':
-    if (*(cur_char + 1) == '>') {
-      lexer->pos += 2;
-      lexer->current_token = (Token){TOKEN_ARROW, "->"};
-      return;
-    }
-    cur_char++;
-    RETURN_TOKEN(TOKEN_SUB, "-");
-    return;
-  case '/':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_DIV, "/");
-    return;
-  case '*':
-    cur_char++;
-    RETURN_TOKEN(TOKEN_DIV, "*");
-    return;
-  default:
-    nob_log(NOB_ERROR, "Unrecognized token '%c'", *cur_char);
-    lexer->pos = cur_char - lexer->input.data + 1;
-    return lexer_next_token(lexer);
-  }
+
+  char *lexeme = nob_temp_alloc(2);
+  lexeme[0] = *(cur_char++);
+  lexeme[1] = 0;
+  RETURN_TOKEN(TOKEN_SYMBOL, lexeme);
+  return;
 #undef RETURN_TOKEN
 }
 
@@ -328,64 +267,274 @@ comments are handled by "lexer_next_noken"
 for now I can only have assignments
 */
 
+uint32_t choice_depth = 0;
+
 typedef enum NodeType {
   NODE_NULL,
   NODE_PROGRAM,
-  // NODE_DECLARATION,
-  // NODE_BINOP_SUM_SUB,
-  // NODE_BINOP_MUL_DIV,
-  // NODE_LIT_IDENT,
-  // NODE_LIT_INT,
-  // NODE_LIT_STRING,
-  // NODE_LIT_BOOL,
-  // NODE_FUNC,
-  // NODE_FUNC_TYPE
+  NODE_STATEMENT,
+  NODE_FUNCTION_CALL,
+  NODE_ASSIGNMENT,
+  NODE_IMPLIED_ASSIGNMENT,
+  NODE_EXPRESSION_ASSIGNMENT,
+  NODE_VALUE_ASSIGNMENT,
+  NODE_TYPE_ASSIGNMENT,
+  NODE_EXPRESSION,
+  NODE_IDENTIFIER,
+  NODE_VALUE,
+  NODE_TYPE,
 } NodeType;
 
 typedef struct AstNode {
-  NodeType type;
   Nob_String_View source;
   void *node;
+  NodeType type;
+  int line;
+  int col;
 } AstNode;
 
-typedef struct Program {
+typedef struct ManyElementNode {
   AstNode *items;
   size_t count;
   size_t capacity;
 } Program;
-#define new_Program(val) ((AstNode){NODE_PROGRAM, {0}, &(val)})
+
+typedef struct SingleElementNode {
+  AstNode item;
+} Statement, Assignment, FunctionCall, Expression, Type;
+
+typedef struct ImpliedAssignment {
+  AstNode left;
+  AstNode right;
+} ImpliedAssignment, ExpressionAssignment, ValueAssignment, TypeAssignment;
+
+typedef struct Identifier {
+  const char *str;
+} Identifier;
+AstNode parse_literal(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing literal");
+  NOB_UNUSED(lexer);
+  NOB_TODO("Implement parse_literal.");
+}
+
+AstNode parse_type_function_call(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing type_function_call");
+  NOB_UNUSED(lexer);
+  NOB_TODO("Implement parse_type_function_call.");
+}
+
+AstNode parse_function_type(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing function_type");
+  NOB_UNUSED(lexer);
+  NOB_TODO("Implement parse_function_type.");
+}
+
+AstNode parse_code_block(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing code_block");
+  NOB_UNUSED(lexer);
+  NOB_TODO("Implement parse_code_block.");
+}
+
+AstNode parse_function_definition(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing function_definition");
+  NOB_UNUSED(lexer);
+  NOB_TODO("Implement parse_function_definition.");
+}
+
+AstNode parse_identifier(Lexer *lexer);
+AstNode parse_type(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing type");
+  AstNode expression = new_ast_node(Expression, lexer);
+
+  AstNode identifier = {0};
+  parse_(lexer, identifier, identifier, function_type, type_function_call,
+         literal);
+  ok_or_return(identifier.type, expression);
+  ((Type *)expression.node)->item = identifier;
+
+  AstNode node = compose_ast_node(lexer, expression, NODE_EXPRESSION);
+  nob_log(NOB_INFO, "Parsed type: `%.*s`", (int)node.source.count,
+          node.source.items);
+  return node;
+}
+
+AstNode parse_value(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing value");
+  NOB_UNUSED(lexer);
+  NOB_TODO("Implement parse_value.");
+}
+
+AstNode parse_identifier(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing identifier");
+  AstNode identifier = new_ast_node(Identifier, lexer);
+
+  ((Identifier *)identifier.node)->str = lexer->current_token.lexeme;
+  consume(lexer, TOKEN_IDENTIFIER);
+
+  AstNode node = compose_ast_node(lexer, identifier, NODE_IDENTIFIER);
+  nob_log(NOB_INFO, "Parsed identifier: `%.*s`", (int)node.source.count,
+          node.source.items);
+  return node;
+}
+
+AstNode parse_expression(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing expression");
+  AstNode expression = new_ast_node(Expression, lexer);
+
+  AstNode identifier = {0};
+  parse_(lexer, identifier, type, value, function_definition, code_block);
+  ok_or_return(identifier.type, expression);
+  ((Expression *)expression.node)->item = identifier;
+
+  AstNode node = compose_ast_node(lexer, expression, NODE_EXPRESSION);
+  nob_log(NOB_INFO, "Parsed expression: `%.*s`", (int)node.source.count,
+          node.source.items);
+  return node;
+}
+
+AstNode parse_implied_assignment(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing implied_assignment");
+  AstNode implied_assignment = new_ast_node(ImpliedAssignment, lexer);
+
+  AstNode identifier = parse_identifier(lexer);
+  ok_or_return(identifier.type, implied_assignment);
+  ((ImpliedAssignment *)implied_assignment.node)->left = identifier;
+
+  int pos = lexer->pos;
+  consume_str(lexer, "::", ":=");
+  ok_or_return(pos != lexer->pos, implied_assignment);
+
+  AstNode expression = parse_expression(lexer);
+  ok_or_return(expression.type, implied_assignment);
+  ((ImpliedAssignment *)implied_assignment.node)->right = expression;
+
+  AstNode node =
+      compose_ast_node(lexer, implied_assignment, NODE_IMPLIED_ASSIGNMENT);
+  nob_log(NOB_INFO, "Parsed implied assignment: `%.*s`", (int)node.source.count,
+          node.source.items);
+  return node;
+}
+
+AstNode parse_type_assignment(Lexer *lexer);
+AstNode parse_expression_assignment(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing expression_assignment");
+  AstNode expression_assignment = new_ast_node(ExpressionAssignment, lexer);
+
+  AstNode identifier = {0};
+  parse_(lexer, identifier, identifier, type_assignment);
+  ok_or_return(identifier.type, expression_assignment);
+  ((ImpliedAssignment *)expression_assignment.node)->left = identifier;
+
+  int pos = lexer->pos;
+  consume_str(lexer, ":", "=");
+  ok_or_return(pos != lexer->pos, expression_assignment);
+
+  AstNode expression = parse_expression(lexer);
+  ok_or_return(expression.type, expression_assignment);
+  ((ImpliedAssignment *)expression_assignment.node)->right = expression;
+
+  AstNode node = compose_ast_node(lexer, expression_assignment,
+                                  NODE_EXPRESSION_ASSIGNMENT);
+  nob_log(NOB_INFO, "Parsed expression assignment: `%.*s`",
+          (int)node.source.count, node.source.items);
+  return node;
+}
+
+AstNode parse_value_assignment(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing value_assignment");
+  AstNode value_assignment = new_ast_node(ValueAssignment, lexer);
+
+  AstNode identifier = parse_identifier(lexer);
+  ok_or_return(identifier.type, value_assignment);
+  ((ImpliedAssignment *)value_assignment.node)->left = identifier;
+
+  int pos = lexer->pos;
+  consume_str(lexer, "=");
+  ok_or_return(pos != lexer->pos, value_assignment);
+
+  AstNode value = parse_value(lexer);
+  ok_or_return(value.type, value_assignment);
+  ((ImpliedAssignment *)value_assignment.node)->right = value;
+
+  AstNode node =
+      compose_ast_node(lexer, value_assignment, NODE_VALUE_ASSIGNMENT);
+  nob_log(NOB_INFO, "Parsed value assignment: `%.*s`", (int)node.source.count,
+          node.source.items);
+  return node;
+}
+
+AstNode parse_type_assignment(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing type_assignment");
+  AstNode type_assignment = new_ast_node(TypeAssignment, lexer);
+
+  AstNode identifier = parse_identifier(lexer);
+  ok_or_return(identifier.type, type_assignment);
+  ((ImpliedAssignment *)type_assignment.node)->left = identifier;
+
+  int pos = lexer->pos;
+  consume_str(lexer, "=");
+  ok_or_return(pos != lexer->pos, type_assignment);
+
+  AstNode type = parse_type(lexer);
+  ok_or_return(type.type, type_assignment);
+  ((ImpliedAssignment *)type_assignment.node)->right = type;
+
+  AstNode node = compose_ast_node(lexer, type_assignment, NODE_TYPE_ASSIGNMENT);
+  nob_log(NOB_INFO, "Parsed type assignment: `%.*s`", (int)node.source.count,
+          node.source.items);
+  return node;
+}
 
 AstNode parse_assignment(Lexer *lexer) {
-  NOB_UNUSED(lexer);
-  AstNode assignment = {0};
-  return assignment;
+  nob_log(NOB_INFO, "Parsing assignment");
+  AstNode assignment = new_ast_node(Assignment, lexer);
+  parse_(lexer, assignment, implied_assignment, expression_assignment,
+         value_assignment, type_assignment);
+  ok_or_return(assignment.type, assignment);
+  AstNode node = compose_ast_node(lexer, assignment, NODE_ASSIGNMENT);
+  nob_log(NOB_INFO, "Parsed assignment: `%.*s`", (int)node.source.count,
+          node.source.items);
+  return node;
 }
 
 AstNode parse_function_call(Lexer *lexer) {
+  nob_log(NOB_INFO, "Parsing function_call");
   NOB_UNUSED(lexer);
-  AstNode assignment = {0};
-  return assignment;
+  NOB_TODO("Implement parse_function_call.");
 }
 
 AstNode parse_statement(Lexer *lexer) {
-  AstNode statement = {0};
+  nob_log(NOB_INFO, "Parsing statement");
+  AstNode statement = new_ast_node(Statement, lexer);
   parse_(lexer, statement, assignment, function_call);
-  return statement;
+  ok_or_return(statement.type, statement);
+  AstNode node = compose_ast_node(lexer, statement, NODE_STATEMENT);
+  nob_log(NOB_INFO, "Parsed statement: `%.*s`", (int)node.source.count,
+          node.source.items);
+  return node;
 }
 
-AstNode parse_program(Lexer *lexer, Program program) {
-  nob_da_append(&program, parse_statement(lexer));
+AstNode parse_program(Lexer *lexer, AstNode program) {
+  nob_log(NOB_INFO, "Parsing program");
+  nob_da_append((Program *)program.node, parse_statement(lexer));
 
-  if (lexer->current_token.type == TOKEN_EOF)
-    return new_Program(program);
-  else
+  if (lexer->current_token.type == TOKEN_EOF) {
+    AstNode node = compose_ast_node(lexer, program, NODE_PROGRAM);
+    nob_log(NOB_INFO, "Parsed program: `%.*s`", (int)node.source.count,
+            node.source.items);
+    return node;
+  } else
     return parse_program(lexer, program);
 }
 
 AstNode parse_source_file(Lexer lexer) {
+  nob_log(NOB_INFO, "Parsing source_file");
   lexer_next_token(&lexer);
 
-  return parse_program(&lexer, (Program){0});
+  AstNode node = parse_program(&lexer, new_ast_node(Program, &lexer));
+  nob_log(NOB_INFO, "Parsed source file: `%.*s`", (int)node.source.count,
+          node.source.items);
+  return node;
 }
 
 void usage(FILE *stream) {
@@ -429,7 +578,11 @@ int main(int argc, char **argv) {
       .pos = 0,
       .current_token = {0},
   };
-  AstNode root = parse_source_file(lexer);
+  AstNode program = parse_source_file(lexer);
+  nob_log(NOB_INFO, "Parsed root.");
+  nob_da_foreach(AstNode, i, (Program *)program.node) {
+    nob_log(NOB_INFO, "statement: %.*s", (int)i->source.count, i->source.items);
+  }
   nob_sb_free(source_file);
 
   // nob_sb_append_null(&source_file);

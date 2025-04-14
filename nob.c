@@ -17,8 +17,8 @@ int main(int argc, char **argv) {
   if (!nob_mkdir_if_not_exists("build/"))
     return 1;
 
-  nob_cmd_append(&cmd, "clang", "-Wall", "-Wextra", "-O3", "-o", "build/main",
-                 "src/main.c", "-I", "deps/");
+  nob_cmd_append(&cmd, "clang", "-Wall", "-Wextra", "-O3", "-ggdb", "-o",
+                 "build/main", "src/main.c", "-I", "deps/");
   if (!nob_cmd_run_sync_and_reset(&cmd))
     return 1;
 
