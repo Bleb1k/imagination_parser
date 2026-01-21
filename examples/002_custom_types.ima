@@ -1,0 +1,10 @@
+// aliasing
+u32 :: uint32_t
+uint :: (unsigned int)
+ulong :: (unsigned long)
+ullong :: (unsigned long long)
+complex32 :: (_Complex uint32_t) 
+
+// unique types
+Index :: unique u32
+Number :: unique (long long int)

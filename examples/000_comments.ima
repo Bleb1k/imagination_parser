@@ -1,0 +1,6 @@
+// c like!
+/*
+  Multiline comments are
+  also supported!
+*/
+// any comment right before a constant assignment is a documentation comment!

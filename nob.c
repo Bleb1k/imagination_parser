@@ -1,5 +1,7 @@
 #define NOB_IMPLEMENTATION
 #include "deps/nob.h"
+
+#define NOB_WARN_DEPRECATED
 #define FLAG_IMPLEMENTATION
 #include "deps/flag.h"
 
@@ -12,29 +14,18 @@ void usage(FILE *stream) {
 }
 
 int main(int argc, char **argv) {
-  NOB_GO_REBUILD_URSELF(argc, argv);
-
-  if (!nob_mkdir_if_not_exists("build/"))
-    return 1;
-
-  nob_cmd_append(&cmd, "clang", "-Wall", "-Wextra", "-O3", "-ggdb", "-o",
-                 "build/main", "src/main.c", "-I", "deps/");
-  if (!nob_cmd_run_sync_and_reset(&cmd))
-    return 1;
+  NOB_GO_REBUILD_URSELF_PLUS(argc, argv, "deps/nob.h", "deps/flag.h");
 
   bool *help =
       flag_bool("help", false, "Print this help to stdout and exit with 0");
   bool *run = flag_bool("run", false, "Run program");
+  bool *dbg = flag_bool("dbg", false, "Debug program");
+  bool *valgrind = flag_bool("valgrind", false, "Run wrapped in valgrind");
 
   if (!flag_parse(argc, argv)) {
     usage(stderr);
     flag_print_error(stderr);
     exit(1);
-  }
-
-  if (*help) {
-    usage(stdout);
-    exit(0);
   }
 
   int rest_argc = flag_rest_argc();
@@ -45,11 +36,30 @@ int main(int argc, char **argv) {
     exit(0);
   }
 
+  if (!mkdir_if_not_exists("build/"))
+    return 1;
+
+  cmd_append(&cmd, "clang", "-Wall", "-Wextra");
+  if (*valgrind || *dbg)
+    cmd_append(&cmd, "-O0", "-g");
+  cmd_append(&cmd, "-o", "build/main", "src/main.c", "-I", "deps/");
+  if (!cmd_run(&cmd))
+    return 1;
+
   if (*run) {
-    nob_cmd_append(&cmd, "build/main");
+    if (*valgrind) cmd_append(&cmd, "valgrind", "--leak-check=full", "--show-leak-kinds=all");
+    if (*dbg) {
+      if (*valgrind)
+        nob_log(WARNING, "can't debug with valgrind running, valgrind will take priority");
+      else {
+        cmd_append(&cmd, "gf2", "--args");
+      }
+    }
+    cmd_append(&cmd, "build/main");
     if (rest_argc > 0)
-      nob_da_append_many(&cmd, rest_argv, rest_argc);
-    if (!nob_cmd_run_sync_and_reset(&cmd))
+      da_append_many(&cmd, rest_argv, rest_argc);
+
+    if (!cmd_run(&cmd))
       return 1;
   }
 

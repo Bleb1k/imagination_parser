@@ -3,12 +3,12 @@
 <statement> ::= <assignment> | <function_call>
 
 <assignment> ::= <implied_assignment>
-               | <expression_assignment>
+               | <full_assignment>
                | <value_assignment>
                | <type_assignment>
 
+<full_assignment> ::= (<type_assignment> | <identifier>) (":" | "=") <expression>
 <implied_assignment> ::= <identifier> ("::" | ":=") <expression>
-<expression_assignment> ::= (<identifier> | <type_assignment>) (":" | "=") <expression>
 <value_assignment> ::= <identifier> "=" <value>
 <type_assignment> ::= <identifier> ":" <type>
 
@@ -20,9 +20,9 @@
                | <function_definition>
                | <code_block>
 
-<type> ::= <identifier>
+<type> ::= <type_function_call>
          | <function_type>
-         | <type_function_call>
+         | <identifier>
          | <literal>
 
 <value> ::= <identifier>
@@ -33,12 +33,15 @@
 
 <function_definition> ::= <function_type> <code_block>
 
-<function_type> ::= "(" (<type_assignment> ("," <type_assignment>)*)? ")" ("->" ((<type> | <type_assignment>) " ")+)
+<function_type> ::= "(" (<type_assignment> ("," <type_assignment>)*)? ")"
+                    ("->" ((<type_assignment> | <type>) ("," <type_assignment> | <type>)*)?)
 
 <code_block> ::= "{" <program> "}"
 
-<function_call> ::= (<identifier> | <special_identifier>) "(" (<value_assignment> ("," <value_assignment>)*)? ")"
-<type_function_call> ::= <identifier> "(" (<type_assignment> ("," <type_assignment>)*)? ")"
+<function_call> ::= (<special_identifier> | <identifier>) "(" (<function_argument> ("," <function_argument>)*)? ")"
+<function_argument> ::= (<identifier> ":")? <value>
+<type_function_call> ::= <identifier> "(" (<type_function_argument> ("," <type_function_argument>)*)? ")"
+<type_function_argument> ::= (<identifier> ":")? <type>
 
 <binary_expression> ::= <value> <binary_operator> <value>
 <binary_operator> ::= "+" | "-" | "*" | "/" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "||" | "&&"
