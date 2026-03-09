@@ -1,3 +1,4 @@
+#define NOB_IMPLEMENTATION
 /* nob - v3.0.0 - Public Domain - https://github.com/tsoding/nob.h
 
    This library is the next generation of the [NoBuild](https://github.com/tsoding/nobuild) idea.
@@ -143,6 +144,14 @@
 #    define NOB_DEPRECATED(...)
 #endif /* NOB_WARN_DEPRECATED */
 
+#ifndef __USE_POSIX199309
+#define __USE_POSIX199309
+#endif
+
+#ifndef __USE_XOPEN2K
+#define __USE_XOPEN2K
+#endif
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -171,6 +180,7 @@
 #    ifdef __FreeBSD__
 #        include <sys/sysctl.h>
 #    endif
+#    include <linux/limits.h>
 #    include <sys/types.h>
 #    include <sys/wait.h>
 #    include <sys/stat.h>
@@ -326,6 +336,13 @@ NOBDEF bool nob_walk_dir_opt(const char *root, Nob_Walk_Func func, Nob_Walk_Dir_
             (da)->items = NOB_DECLTYPE_CAST((da)->items)NOB_REALLOC((da)->items, (da)->capacity * sizeof(*(da)->items)); \
             NOB_ASSERT((da)->items != NULL && "Buy more RAM lol");                         \
         }                                                                                  \
+    } while (0)
+
+#define nob_da_init(da, expected_capacity)                                                 \
+    do {                                                                                   \
+        NOB_ASSERT((da)->items == NULL && "already initialized");                          \
+        (da)->capacity = (expected_capacity);                                              \
+        (da)->items = NOB_DECLTYPE_CAST((da)->items)NOB_REALLOC(NULL, (expected_capacity) * sizeof(*(da)->items));\
     } while (0)
 
 // Append an item to a dynamic array
@@ -2482,6 +2499,7 @@ NOBDEF char *nob_temp_running_executable_path(void)
         #define delete_file nob_delete_file
         #define return_defer nob_return_defer
         #define da_append nob_da_append
+        #define da_init nob_da_init
         #define da_free nob_da_free
         #define da_append_many nob_da_append_many
         #define da_resize nob_da_resize

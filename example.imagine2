@@ -1,0 +1,225 @@
+// operations go sequentially in precedence from left to right
+// a :: -1().* * b[10] + e == "abc" < .hello || .great && .not
+// here they are parenthesized to show how they are parsed explicitly
+// a :: ((((((-1().* * b[10]) + e) == "abc") < .hello) || .great) && .not)
+
+foo :: "example"
+       "multiline"
+       "string"
+
+include("ctype.h")
+include("stddef.h")
+include("stdint.h")
+
+define("NOB_IMPLEMENTATION")
+include("nob.h")
+define("FLAG_IMPLEMENTATION")
+include("flag.h")
+define("HM_IMPLEMENTATION")
+include("hm.h")
+
+define("PARSER_DEBUG")
+include("./macro_witchery.h")
+
+TokenType :: enum u8 {
+  null
+  eof
+  identifier
+  arrow
+  arrow_fat
+  int
+  intl
+  intll
+  intu
+  intul
+  intull
+  float32
+  float64
+  float128
+  string
+  true_
+  false_
+  comment
+  char
+  symbol
+}
+
+TokenValue :: enum TokenType {
+  identifier = .identifier
+  int        = .int
+  intl       = .intl
+  intll      = .intll
+  intu       = .intu
+  intul      = .intul
+  intull     = .intull
+  float32    = .float32
+  float64    = .float64
+  float128   = .float128
+  string     = .string
+  true       = .true
+  false      = .false
+  char       = .char
+}
+
+is_str_here
+: ([]char, []char) -> void
+: (src, needle: []char) -> {
+  if len(src) < len(needle) {return false}
+  for needle if it != src[it_index] {return false}
+  return true
+}
+
+Token :: struct {
+  lexeme: []char
+  type: TokenType
+  line: int
+}
+
+Lexer :: struct {
+  input: []char
+  source_file_path: []char
+  current_token: Token
+  pos, last_newline_pos, line_count: int
+}
+
+Lexer.return_token :: (
+  self: *Lexer,
+  typ: TokenType,
+  lexeme: []char
+) -> {
+  self.current_token = .{
+    lexeme,
+    type = typ,
+    line = self.line_count
+  }
+  self.pos = self.input.(*char) - lexeme.(*char) + len(lexeme)
+}
+
+Lexer.next_token :: (self: *Lexer) -> {
+  cur_char := self.input.(*char) + self.pos
+
+  if self.pos.(size_t) >= len(self.input) - 1 {
+    return self.return_token(.eof)
+  }
+
+  for cur_char.* == ' ' || cur_char.* == '\n' || cur_char.* == '\t' {
+    if cur_char.* == '\n' {
+      self.last_newline_pos = cur_char - self.input.(*char)
+    }
+    cur_char += 1
+  }
+
+  start := cur_char
+
+  // handle comments
+  switch cur_char.* {
+  case '/':
+    if cur_char[1] == '/' {
+      cur_char += 2
+      for cur_char.* != '\n' &&
+          self.input.(*char) - cur_char < len(self.input) {
+        cur_char += 1
+      }
+      return self.return_token(.comment, input[start..cur_char])
+    } else if cur_char[1] == '*' {
+      cur_char += 2
+      for depth := 1; depth; cur_char += 1 {
+        if cur_char.* == '\n' {
+          lexer.last_newline_pos = cur_char - lexer.input.(*char)
+          lexer.line_count += 1
+        }
+        if cur_char.* == '/' {
+          if cur_char[-1] == '*' {depth -= 1}
+          else if cur_char[1] == '*' {depth += 1}
+        }
+      }
+      return self.return_token(.comment, start[..start-cur_char])
+    }
+ case '_', isalpha():
+    for isalnum(cur_char.*) || cur_char.* == '_' {
+      cur_char += 1
+    }
+
+    typ: TokenType = switch self.input {
+      case "true": .true
+      case "false": .false
+      default: .identifier
+    }
+    
+    return self.return_token(typ, start[..start-cur_char])
+  case '"':
+    for cur_char.* != '"' {cur_char += 1}
+    return self.return_token(.string, start[..start-cur_char])
+  case isdigit(), '.' if isdigit(cur_char[1]):
+    previous_char_is_underscore := false
+    is_float := false
+    
+    for {
+      if cur_char.* == '_' {
+        if previous_char_is_underscore {
+          nob_log(ERROR, "Number can't contain two or more consecutive underscores.")
+          break;
+        }
+        previous_char_is_underscore = true
+        cur_char += 1
+        continue;
+      }
+      previous_char_is_underscore = false
+      
+      if cur_char.* == '.' {
+        if is_floating {
+          nob_log(ERROR, "Number can't contain two or more periods.")
+          break;
+        }
+        is_floating = true
+        cur_char += 1
+        continue;
+      }
+      
+      if !isdigin(cur_char.*) {break;}
+      cur_char += 1
+    }
+    
+    typ := TokenType.int
+    if !is_floating {
+      switch cur_char.* {
+      case 'u', 'U':
+        cur_char += 1
+        typ = .intu
+      }
+      switch cur_char.* {
+      case 'l', 'L':
+        cur_char += 1
+        typ = switch typ {
+          case .int: .intl
+          default: .intul
+        }
+      }
+      switch cur_char.* {
+      case 'l', 'L':
+        cur_char += 1
+        typ = switch typ {
+          case .intl: .intll
+          default: .intull
+        }
+      }
+    } else {
+      typ = .float64
+      switch cur_char.* {
+      case 'e', 'E':
+        cur_char += 1
+        switch cur_char.* {case '-', '+': cur_char += 1}
+        for isdigit(cur_char.*) {cur_char += 1}
+      case 'f', 'F':
+        cur_char += 1
+        typ = .float32
+      case 'l', 'L':
+        cur_char += 1
+        typ = .float128
+      }
+    }
+    if cur_char.* == 'i' {cur_char += 1}
+
+    return self.return_token(typ, start[..start-cur_char])
+  }
+}

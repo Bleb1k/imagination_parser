@@ -1,0 +1,91 @@
+.line-comment-token '//'
+program = (stmt ';'?)*
+stmt =
+   assign: assign
+   lval [ '(' (rval (',' rval)*)? ')' ]: call
+   if_stmt: if
+   'switch' expr [ '{' (switch_case program)* '}' ]: switch
+   ('break' | 'continue' | 'return') (rval | ';'): flow_stmt
+   [ '{' program '}' ]: block
+   'for' [ '{' program '}' ]: loop
+ .operators prefix
+   ('for' | 'while') for_body: for
+switch_case = ('default' | 'case' (case_item (',' case_item)*)) ':'
+case_item = rval ('if' expr)?
+if_stmt =
+   'if' expr [ '{' program '}' ]: if
+ .operators infix left
+   'else': else
+ .operators postfix
+   'else' [ '{' program '}' ]: tail
+for_body = (assign\:full_const_assign\:implied_const_assign ';')? expr (';' (assign_eq | expr))?
+assign =
+   lval ':' typ '=' rval: full_assign
+   lval ':' '=' rval\:typ : implied_val_assign
+   lval ':' typ ':' rval: full_const_assign
+   lval ':' ':' rval: implied_const_assign
+   lval ':' typ: type_assign
+   lval '=' rval\:typ: val_assign
+   assign_eq: assign_eq
+assign_eq = lval ('+=' | '-=' | '*=' | '/=' | '%=') rval\:typ
+rval = 
+   expr: expr
+   function: func
+   lval? '.' [ '{' (enum_item ','?)* '}' ]: struct_literal
+   typ_no_ident: typ
+   'switch' expr [ '{' (switch_case rval)* '}' ]: switch
+function = [ '(' (param_item (',' param_item)* ','?)? ')' ] ('->' typ@result?) [ '{' program '}' ]
+param_item = (identifier ',')* identifier ':' typ
+enum_item = identifier ('=' expr)?
+typ = 
+   identifier: ident
+   typ_no_ident: other
+   [ '(' (typ (',' typ)* ','?)? ')' ]: tuple
+.operators prefix
+   '[]': slice
+   '*': ptr
+   [ '(' (typ (',' typ)* ','?)? ')' ] '->': function
+typ_no_ident =
+   '<' identifier+ '>': unknown
+   'enum' lval? [ '{' ((enum_item ','?)*|(enum_item ';'?)*) '}' ]: enum
+   'struct' [ '{' ((param_item ','?)*|(param_item ';'?)*) '}' ]: struct
+expr =
+   [ '(' expr ')' ] : parens
+   '.' identifier : enum_val
+   lval : variable
+   string+: string
+   number : literal
+ .operators prefix
+   '-' : negative
+   '!' : logical_not
+ .operators postfix
+   [ '(' (rval (',' rval)*)? ','? ')' ]: call
+   '.' [ '(' typ ')' ]: cast
+   '.*': deref
+   [ '[' rval ']' ]: indexing
+   [ '[' rval? ('..'|'..=') rval? ']' ]: range
+ .operators infix left
+   '*' : times
+   '/' : divide
+   '%' : mod
+   '&' : bit_and
+ .operators infix left
+   '+' : plus
+   '-' : minus
+   '|' : bit_or
+   '~' : bit_not
+ .operators infix left
+   '==' : equal
+   '!=' : not_equal
+   '<' : lt
+   '>' : gt
+   '<=' : le
+   '>=' : ge
+ .operators infix left
+   '&&': logical_and
+ .operators infix left
+   '||': logical_or
+lval =
+   identifier: id
+.operators infix left
+   '.': field

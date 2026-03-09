@@ -86,7 +86,7 @@ typedef struct{
   HM_HashFunc hash_func;
 } HM;
 
-#define HM_entry_index(self, i) ((HM_Entry*)((self)->entries + ((sizeof(HM_Entry)+self->element_size)*(i))))
+#define HM_entry_index(self, i) ((HM_Entry*)((self)->entries + ((sizeof(HM_Entry)+(self)->element_size)*(i))))
 
 /**
  * \brief                 initializes the hashmap
@@ -224,14 +224,13 @@ HM_Iterator HM_kwl_find(HM* self, const void* key, size_t key_len);
   HM_kwl_find(self, &(key), sizeof(key))
 
 /**
- * \brief           returns HM_Iterator based on give HM_Iterator passed as argument
+ * \brief           stores HM_Iterator in current based on give previous HM_Iterator in current
  * \param self:     hashmap handle 
- * \param current:  NULL to get a HM_Iterator for the first element or previously returned 
- *                  HM_Iterator for the next element
- * \return          HM_Iterator for the nest element or NULL if the given HM_Iterator is for 
- *                  the last element
+ * \param current:  NULL gives HM_Iterator for the first element, previously returned 
+ *                  HM_Iterator gives next element
+ * \return          bool, if HM_Iterator for the next element was found or not
  */
-HM_Iterator HM_iterate(HM* self, HM_Iterator current);
+bool HM_iterate(HM* self, HM_Iterator *current);
 
 void HM_swap_order(HM* self, HM_Iterator a_it, HM_Iterator b_it);
 
@@ -326,15 +325,16 @@ size_t HM_default_hash(const char *str, size_t len){
 
 #ifdef HM_IMPLEMENTATION
 
-HM_Iterator HM_iterate(HM* self, HM_Iterator current){
-  if(self->count == 0) return NULL;
-  if(current == NULL){
-    return &self->first;
-  }else if(*current == self->last){
-    return NULL;
+bool HM_iterate(HM* self, HM_Iterator *current){
+  if(self->count == 0) return false;
+  if(*current == NULL){
+    *current = &self->first;
+  }else if(**current == self->last){
+    return false;
   }else{
-    return &HM_entry_index(self, *current)->next;
+    *current = &HM_entry_index(self, **current)->next;
   }
+  return true;
 }
 
 void HM_swap_order(HM* self, HM_Iterator a_it, HM_Iterator b_it){
@@ -390,6 +390,7 @@ bool HM_kwl_set(HM* self, const void* key, size_t key_len, void* value){
     }
 
     // TODO use internal buffer instead of seperate heap buffer for keys
+    printf("cpy key %.*s (%zu, %zu)\n", (int)key_len, (char *)key, key_len, sizeof(char));
     entry->key = (char*)HM_CALLOC(key_len, sizeof(char));
     entry->key_len = key_len;
     HM_CHECK_ALLOC(entry->key);
@@ -511,7 +512,7 @@ bool HM_grow(HM* self){
   }
 
   // rehash and deinit
-  for(HM_Iterator i = HM_iterate(self, NULL); i != NULL; i = HM_iterate(self, i)){
+  for(HM_Iterator i = NULL; HM_iterate(self, &i);){
     HM_kwl_set(&new_hm, HM_key_at(self, i), *HM_key_len_at(self, i), HM_value_at(self, i));
   }
   HM_deinit(self);
@@ -531,7 +532,7 @@ bool HM_init(HM* self, size_t element_size, size_t capacity){
 }
 
 void HM_deinit(HM* self){
-  for(HM_Iterator i = HM_iterate(self, NULL); i != NULL; i = HM_iterate(self, i)){
+  for(HM_Iterator i = NULL; HM_iterate(self, &i);){
     HM_FREE((void*)HM_key_at(self, i));
   }
   HM_FREE(self->entries);

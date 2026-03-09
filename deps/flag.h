@@ -620,7 +620,6 @@ bool flag_c_parse(void *c, int argc, char **argv)
 
         bool ignore = false;
         if (*flag == '/') {
-            printf("%c == '/'\n", *flag);
             ignore = true;
             flag += 1;
         }

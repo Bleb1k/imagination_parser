@@ -39,18 +39,22 @@ int main(int argc, char **argv) {
   if (!mkdir_if_not_exists("build/"))
     return 1;
 
-  cmd_append(&cmd, "clang", "-Wall", "-Wextra");
+  cmd_append(&cmd, "clang", "-std=c23", "-Wall", "-Wextra");
   if (*valgrind || *dbg)
-    cmd_append(&cmd, "-O0", "-g");
+    cmd_append(&cmd, "-mno-avx", "-mno-avx2", "-mno-fma", "-O0", "-ggdb3");
   cmd_append(&cmd, "-o", "build/main", "src/main.c", "-I", "deps/");
   if (!cmd_run(&cmd))
     return 1;
 
   if (*run) {
-    if (*valgrind) cmd_append(&cmd, "valgrind", "--leak-check=full", "--show-leak-kinds=all");
+    if (*valgrind)
+      cmd_append(&cmd, "valgrind", "--leak-check=full",
+                 "--show-leak-kinds=all");
     if (*dbg) {
       if (*valgrind)
-        nob_log(WARNING, "can't debug with valgrind running, valgrind will take priority");
+        nob_log(
+            WARNING,
+            "can't debug with valgrind running, valgrind will take priority");
       else {
         cmd_append(&cmd, "gf2", "--args");
       }
