@@ -361,6 +361,7 @@ void HM_swap_order(HM* self, HM_Iterator a_it, HM_Iterator b_it){
 }
 
 bool HM_kwl_set(HM* self, const void* key, size_t key_len, void* value){
+  // printf("setting '%.*s'\n", (int)key_len, key);
   if(self->count >= self->capacity/2){
     if(!HM_grow(self)) return false;
   }
@@ -390,7 +391,7 @@ bool HM_kwl_set(HM* self, const void* key, size_t key_len, void* value){
     }
 
     // TODO use internal buffer instead of seperate heap buffer for keys
-    printf("cpy key %.*s (%zu, %zu)\n", (int)key_len, (char *)key, key_len, sizeof(char));
+    // printf("cpy key %.*s (%zu, %zu)\n", (int)key_len, (char *)key, key_len, sizeof(char));
     entry->key = (char*)HM_CALLOC(key_len, sizeof(char));
     entry->key_len = key_len;
     HM_CHECK_ALLOC(entry->key);
@@ -458,6 +459,7 @@ void* HM_get(HM* self, const char* key){
 }
 
 void* HM_kwl_get(HM* self, const void* key, size_t key_len){
+  // printf("getting '%.*s'\n", (int)key_len, key);
   if(self->count == 0) return NULL;
   return HM_value_at(self, HM_kwl_find(self, key, key_len));
 }

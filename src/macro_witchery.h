@@ -112,15 +112,19 @@
 #define __PREPEND_15(name, v, ...) name##v, __PREPEND_14(name, __VA_ARGS__)
 #define __PREPEND_16(name, v, ...) name##v, __PREPEND_15(name, __VA_ARGS__)
 
-#define debug_this(...) (dbg_lvl += 1, padded_puts("", 2), nob_log(INFO, "%s:%d: %s", __FILE__, __LINE__, __FUNCTION__))
+#define debug_this(...)                                                        \
+  (dbg_lvl += 1, padded_puts("", 2),                                           \
+   nob_log(INFO, "%s:%d: %s", __FILE__, __LINE__, __FUNCTION__))
+#define HERE_FMT "%s:%d: %s"
+#define HERE __FILE__, __LINE__, __FUNCTION__
 #ifdef PARSER_DEBUG
 #define __consume_tok_log_searching(...)                                       \
   nob_log(INFO, "\\ %s: Searching tokens: " va_items_stringify(__VA_ARGS__),   \
           __FUNCTION__);
 #define __consume_tok_log_found(...)                                           \
-  nob_log(INFO, "/ %s: Found token <%s>, lexeme '%.*s'",          \
-          __FUNCTION__, token_type_to_string(found.type),                      \
-          (int)found.lexeme.count, found.lexeme.data);
+  nob_log(INFO, "/ %s: Found token <%s>, lexeme '%.*s'", __FUNCTION__,         \
+          token_type_to_string(found.type), (int)found.lexeme.count,           \
+          found.lexeme.data);
 #define __consume_tok_log_wrong(...)                                           \
   nob_log(NOB_WARNING,                                                         \
           "/ %s:%d: %s: Found <%s> '%.*s', but expected one "                  \
@@ -150,7 +154,7 @@
       }                                                                        \
     }                                                                          \
     --choice_depth;                                                            \
-    if (found.type == 0) {                                            \
+    if (found.type == 0) {                                                     \
       __consume_tok_log_wrong(__VA_ARGS__);                                    \
       if (!choice_depth)                                                       \
         __builtin_trap();                                                      \
@@ -199,9 +203,9 @@
   ({                                                                           \
     int res = __parse(                                                         \
         (lexer), (AstNode *)&(ast_node),                                       \
-        (bool (*[])(Lexer *, void *)){PREPEND(parse_, __VA_ARGS__)},        \
-        __NARG__(__VA_ARGS__), (const char *[]){va_stringify(__VA_ARGS__)}, __FUNCTION__,  \
-        __FILE__, __LINE__);                                                   \
+        (bool (*[])(Lexer *, void *)){PREPEND(parse_, __VA_ARGS__)},           \
+        __NARG__(__VA_ARGS__), (const char *[]){va_stringify(__VA_ARGS__)},    \
+        __FUNCTION__, __FILE__, __LINE__);                                     \
     if (res < 0) {                                                             \
       on_error;                                                                \
     }                                                                          \
@@ -210,10 +214,10 @@
 #else
 #define parse_or(on_error, lexer, ast_node, ...)                               \
   ({                                                                           \
-    int res = __parse(                                                         \
-        lexer, (AstNode *)&(ast_node),                                                      \
-        (bool (*[])(Lexer *, void *)){PREPEND(parse_, __VA_ARGS__)},        \
-        __NARG__(__VA_ARGS__));                                                \
+    int res =                                                                  \
+        __parse(lexer, (AstNode *)&(ast_node),                                 \
+                (bool (*[])(Lexer *, void *)){PREPEND(parse_, __VA_ARGS__)},   \
+                __NARG__(__VA_ARGS__));                                        \
     if (res < 0) {                                                             \
       on_error;                                                                \
     }                                                                          \
@@ -225,7 +229,7 @@
   parse_or(goto throw, lexer, ast_node, __VA_ARGS__)
 #define parse_(lexer, ast_node, ...) parse_or(, lexer, ast_node, __VA_ARGS__)
 
-#define new_node(Type, lexer)                                              \
+#define new_node(Type, lexer)                                                  \
   ((Type){.source = {.data = (lexer)->current_token.lexeme.data, .count = 0}})
 // ((AstNode){ \
 //     .source = {.data = (lexer)->current_token.lexeme.data, .count = 0}, \
@@ -251,3 +255,11 @@
 #define let(typ, varname) let_buf(typ, varname, 1)
 
 #define iterate(da) da_foreach(auto, it, da)
+#define iterate_back(da) for (auto *it = (da)->items + (da)->count - 1;\
+         it >= (da)->items; --it) 
+
+#define true_once                                                              \
+  ({                                                                           \
+    static bool b = false;                                                     \
+    !b++;                                                      \
+  })

@@ -127,10 +127,10 @@ typedef struct Lexer {
 void lexer_next_token(Lexer *lexer) {
 #define RETURN_TOKEN(TOK, VAL_FROM, VAL_TO)                                    \
   do {                                                                         \
-    lexer->current_token =                                                     \
-        (Token){.lexeme = {.data = VAL_FROM, .count = VAL_TO - VAL_FROM},      \
-                .type = TOK};                                                  \
-    lexer->pos = VAL_TO - lexer->input.data;                                   \
+    lexer->current_token = (Token){                                            \
+        .lexeme = {.data = (VAL_FROM), .count = (VAL_TO) - (VAL_FROM)},        \
+        .type = (TOK)};                                                        \
+    lexer->pos = (VAL_TO) - lexer->input.data;                                 \
   } while (0)
 
   printf("==> %s " SV_Fmt "\n", token_type_to_string(lexer->current_token.type),
@@ -373,13 +373,13 @@ uint32_t choice_depth = 0;
   X(FULL_CONST_ASSIGN)                                                         \
   X(IMPLIED_CONST_ASSIGN)
 
-typedef enum NodeType {
+typedef enum NodeKind {
 #define X(v) NODE_##v,
   NODE_TYPES
 #undef X
-} NodeType;
+} NodeKind;
 
-const char *node_type_to_string(NodeType type) {
+const char *node_kind_to_string(NodeKind type) {
   switch (type) {
 #define X(v)                                                                   \
   case NODE_##v:                                                               \
@@ -387,7 +387,7 @@ const char *node_type_to_string(NodeType type) {
     NODE_TYPES
 #undef X
   default:
-    UNREACHABLE(temp_sprintf("Unknown NodeType %d", type));
+    UNREACHABLE(temp_sprintf("Unknown NodeKind %d", type));
   }
 }
 
@@ -431,10 +431,18 @@ typedef union AstNode AstNode;
 #define compose_node(_node, lexer)                                             \
   ((_node).source.count =                                                      \
        (lexer)->current_token.lexeme.data - (_node).source.data,               \
-   (_node))
+   (_node).source = sv_trim_right((_node).source), (_node))
+
+#define arr_field(Type)                                                        \
+  struct {                                                                     \
+    Type *items;                                                               \
+    size_t count, capacity;                                                    \
+  }
+
+typedef arr_field(HM) ScopeStack;
 
 typedef struct AstCallbackContext {
-  HM *scope;
+  ScopeStack scope_stack;
   const char *file_name;
   const char *source;
 } AstCallbackContext;
@@ -469,15 +477,9 @@ AstCallbackDA callbacks[] = {
     iterate(&callbacks[(typ##Id)]) it->fn(it->context, (ast));                 \
   } while (0)
 
-#define arr_field(Type)                                                        \
-  struct {                                                                     \
-    Type *items;                                                               \
-    size_t count, capacity;                                                    \
-  }
-
 struct LvalNode {
   String_View source;
-  NodeType type;
+  NodeKind kind;
   union {
     Token id;
     struct {
@@ -487,7 +489,7 @@ struct LvalNode {
 };
 struct ExprNode {
   String_View source;
-  NodeType type;
+  NodeKind type;
   bool parens;
   union {
     Token enum_val, literal;
@@ -515,7 +517,7 @@ struct ExprNode {
 };
 struct TypeNoIdentNode {
   String_View source;
-  NodeType type;
+  NodeKind kind;
   union {
     arr_field(Token) unknown;
     struct {
@@ -527,7 +529,7 @@ struct TypeNoIdentNode {
 };
 struct TypeNode {
   String_View source;
-  NodeType type;
+  NodeKind kind;
   union {
     Token ident;
     TypeNoIdent other;
@@ -557,7 +559,7 @@ struct FunctionNode {
 };
 struct RvalNode {
   String_View source;
-  NodeType type;
+  NodeKind kind;
   union {
     Expr expr;
     Function function;
@@ -586,7 +588,7 @@ struct AssignEqNode {
 };
 struct AssignNode {
   String_View source;
-  NodeType type;
+  NodeKind type;
   Lval lval;
   Type typ;
   Rval rval;
@@ -596,7 +598,7 @@ struct ForBodyNode {
   String_View source;
   Assign *start;
   Expr expr;
-  NodeType end_type;
+  NodeKind end_type;
   union {
     AssignEq *assign_eq;
     Expr *expr;
@@ -604,7 +606,7 @@ struct ForBodyNode {
 };
 struct IfStmtNode {
   String_View source;
-  NodeType type;
+  NodeKind type;
   union {
     struct {
       Expr expr;
@@ -629,7 +631,7 @@ struct SwitchCaseNode {
 };
 struct StmtNode {
   String_View source;
-  NodeType type;
+  NodeKind type;
   union {
     Assign assign;
     struct {
@@ -798,7 +800,7 @@ void print_stmt(Stmt node) {
     padded_puts("}", -2);
     break;
   default:
-    padded_puts(temp_sprintf("Stmt {%s}", node_type_to_string(node.type)));
+    padded_puts(temp_sprintf("Stmt {%s}", node_kind_to_string(node.type)));
   }
 }
 void print_switch_case(SwitchCase node) {
@@ -847,7 +849,7 @@ void print_if_(IfStmt node) {
     print_program(*node.as.tail.end);
     break;
   default:
-    UNREACHABLE(temp_sprintf("%s", node_type_to_string(node.type)));
+    UNREACHABLE(temp_sprintf("%s", node_kind_to_string(node.type)));
   }
 }
 void print_for_body(ForBody node) {
@@ -869,7 +871,7 @@ void print_for_body(ForBody node) {
       print_assign_eq(*node.end.assign_eq);
       break;
     default:
-      UNREACHABLE(temp_sprintf("%s", node_type_to_string(node.end_type)));
+      UNREACHABLE(temp_sprintf("%s", node_kind_to_string(node.end_type)));
     }
     padded_puts("\n", -2);
   } else
@@ -877,7 +879,7 @@ void print_for_body(ForBody node) {
   padded_puts("}");
 }
 void print_assign(Assign node) {
-  printf("Assign(%s) {", node_type_to_string(node.type));
+  printf("Assign(%s) {", node_kind_to_string(node.type));
   padded_puts("\ntarget: ", 2);
   print_lval(node.lval);
   switch (node.type) {
@@ -898,7 +900,7 @@ void print_assign(Assign node) {
     print_rval(node.rval);
     break;
   default:
-    padded_puts(temp_sprintf("%s", node_type_to_string(node.type)));
+    padded_puts(temp_sprintf("%s", node_kind_to_string(node.type)));
   }
   padded_puts("}", -2);
 }
@@ -914,7 +916,7 @@ void print_assign_eq(AssignEq node) {
 }
 void print_rval(Rval node) {
   padded_puts("Rval {");
-  switch (node.type) {
+  switch (node.kind) {
   case NODE_EXPR:
     print_expr(node.as.expr);
     break;
@@ -948,7 +950,7 @@ void print_rval(Rval node) {
     padded_puts("}", -2);
     break;
   default:
-    padded_puts(temp_sprintf("%s", node_type_to_string(node.type)));
+    padded_puts(temp_sprintf("%s", node_kind_to_string(node.kind)));
   }
   padded_puts("}");
 }
@@ -989,34 +991,46 @@ void print_enum_item(EnumItem node) {
 }
 void print_type(Type node) {
   padded_puts("Type {");
-  switch (node.type) {
-  case NODE_ID:
-  case NODE_SLICE:
-  case NODE_PTR:
-    String_View sv = sv_trim(node.source);
-    printf(SV_Fmt, SV_Arg(sv));
-    break;
-  case NODE_FUNCTION:
-    padded_puts("Function {\nparams:", 2);
-    padded_puts("", 2);
-    iterate(&node.as.function.params) {
-      padded_puts("\n");
-      print_type(*it);
+  for (;;) {
+    switch (node.kind) {
+    case NODE_OTHER:
+      print_type_no_ident(node.as.other);
+      break;
+    case NODE_ID:
+      printf(SV_Fmt, SV_Arg(node.as.ident.lexeme));
+      break;
+    case NODE_PTR:
+      padded_puts("Ptr ");
+      goto ptr_style;
+    case NODE_SLICE:
+      padded_puts("Slice ");
+    ptr_style:;
+      node = *node.as.ptr;
+      continue;
+    case NODE_FUNCTION:
+      padded_puts("Function {\nparams:", 2);
+      padded_puts("", 2);
+      iterate(&node.as.function.params) {
+        padded_puts("\n");
+        print_type(*it);
+      }
+      if (node.as.function.result) {
+        padded_puts("\n", -2);
+        padded_puts("ret:\n", 2);
+        print_type(*node.as.function.result);
+      }
+      padded_puts("\n}", -4);
+      break;
+    default:
+      printf("%s", node_kind_to_string(node.kind));
     }
-    padded_puts("\n", -2);
-    padded_puts("ret:\n", 2);
-    if (node.as.function.result)
-      print_type(*node.as.function.result);
-    padded_puts("\n}", -4);
     break;
-  default:
-    printf("%s", node_type_to_string(node.type));
   }
   padded_puts("}");
 }
 void print_type_no_ident(TypeNoIdent node) {
   padded_puts("TypeNI {");
-  switch (node.type) {
+  switch (node.kind) {
   case NODE_ENUM:
     padded_puts("Enum {", 2);
     if (node.as.enum_.type) {
@@ -1038,7 +1052,7 @@ void print_type_no_ident(TypeNoIdent node) {
     padded_puts("\n}", -2);
     break;
   default:
-    padded_puts(node_type_to_string(node.type));
+    padded_puts(node_kind_to_string(node.kind));
   }
   padded_puts("}");
 }
@@ -1121,7 +1135,7 @@ void print_expr(Expr node) {
   default:
     if (expr_precedence(&node) > 2) {
       // binop
-      padded_puts(temp_sprintf("Binop(%s) {\n", node_type_to_string(node.type)),
+      padded_puts(temp_sprintf("Binop(%s) {\n", node_kind_to_string(node.type)),
                   2);
       print_expr(*node.as.binop.left);
       padded_puts("\n");
@@ -1129,12 +1143,12 @@ void print_expr(Expr node) {
       padded_puts("}", -2);
       break;
     }
-    printf("Expr {%s}", node_type_to_string(node.type));
+    printf("Expr {%s}", node_kind_to_string(node.type));
   }
 }
 void print_lval(Lval node) {
   padded_puts("Lval {");
-  switch (node.type) {
+  switch (node.kind) {
   case NODE_ID:
     printf(SV_Fmt, SV_Arg(node.as.id.lexeme));
     break;
@@ -1149,7 +1163,7 @@ void print_lval(Lval node) {
     }
     break;
   default:
-    padded_puts(temp_sprintf("%s", node_type_to_string(node.type)));
+    padded_puts(temp_sprintf("%s", node_kind_to_string(node.kind)));
   }
   padded_puts("}");
 }
@@ -1237,7 +1251,7 @@ void free_stmt(Stmt stmt) {
   case NODE_INVALID:
     return;
   default:
-    UNREACHABLE(temp_sprintf("%s", node_type_to_string(stmt.type)));
+    UNREACHABLE(temp_sprintf("%s", node_kind_to_string(stmt.type)));
   }
 }
 void free_switch_case(SwitchCase switch_case) {
@@ -1275,7 +1289,7 @@ void free_if_(IfStmt if_) {
     }
     return;
   default:
-    UNREACHABLE(temp_sprintf("%s", node_type_to_string(if_.type)));
+    UNREACHABLE(temp_sprintf("%s", node_kind_to_string(if_.type)));
   }
 }
 void free_for_body(ForBody for_body) {
@@ -1313,7 +1327,7 @@ void free_assign(Assign assign) {
   case NODE_INVALID:
     return;
   default:
-    UNREACHABLE(temp_sprintf("%s", node_type_to_string(assign.type)));
+    UNREACHABLE(temp_sprintf("%s", node_kind_to_string(assign.type)));
   }
 }
 void free_assign_eq(AssignEq assign_eq) {
@@ -1321,7 +1335,7 @@ void free_assign_eq(AssignEq assign_eq) {
   free_rval(assign_eq.rval);
 }
 void free_rval(Rval rval) {
-  switch (rval.type) {
+  switch (rval.kind) {
   case NODE_EXPR:
     return free_expr(rval.as.expr);
   case NODE_FUNCTION:
@@ -1353,7 +1367,7 @@ void free_rval(Rval rval) {
   case NODE_INVALID:
     return;
   default:
-    UNREACHABLE(temp_sprintf("%s", node_type_to_string(rval.type)));
+    UNREACHABLE(temp_sprintf("%s", node_kind_to_string(rval.kind)));
   }
 }
 void free_function(Function function) {
@@ -1378,7 +1392,7 @@ void free_enum_item(EnumItem enum_item) {
   }
 }
 void free_type(Type type) {
-  switch (type.type) {
+  switch (type.kind) {
   case NODE_INVALID:
   case NODE_ID:
     return;
@@ -1403,11 +1417,11 @@ void free_type(Type type) {
     free(type.as.function.result);
     return;
   default:
-    UNREACHABLE(temp_sprintf("%s", node_type_to_string(type.type)));
+    UNREACHABLE(temp_sprintf("%s", node_kind_to_string(type.kind)));
   }
 }
 void free_type_no_ident(TypeNoIdent type_no_ident) {
-  switch (type_no_ident.type) {
+  switch (type_no_ident.kind) {
   case NODE_UNKNOWN:
     return;
   case NODE_ENUM:
@@ -1425,7 +1439,7 @@ void free_type_no_ident(TypeNoIdent type_no_ident) {
   case NODE_INVALID:
     return;
   default:
-    UNREACHABLE(temp_sprintf("%s", node_type_to_string(type_no_ident.type)));
+    UNREACHABLE(temp_sprintf("%s", node_kind_to_string(type_no_ident.kind)));
   }
 }
 void free_expr(Expr expr) {
@@ -1494,11 +1508,11 @@ void free_expr(Expr expr) {
   case NODE_INVALID:
     return;
   default:
-    UNREACHABLE(temp_sprintf("%s", node_type_to_string(expr.type)));
+    UNREACHABLE(temp_sprintf("%s", node_kind_to_string(expr.type)));
   }
 }
 void free_lval(Lval lval) {
-  if (lval.type == NODE_FIELD)
+  if (lval.kind == NODE_FIELD)
     da_free(lval.as.field);
 }
 
@@ -1681,11 +1695,11 @@ bool parse_type_no_ident(Lexer *lexer, void *result);
 bool parse_expr(Lexer *lexer, void *result);
 bool parse_lval(Lexer *lexer, void *result);
 
-#define box(node)                                                              \
+#define box(...)                                                               \
   ({                                                                           \
-    auto t = node;                                                             \
+    auto t = (__VA_ARGS__);                                                    \
     typeof(t) *tmp = malloc(sizeof(t));                                        \
-    *tmp = (node);                                                             \
+    *tmp = t;                                                                  \
     tmp;                                                                       \
   })
 
@@ -1696,7 +1710,7 @@ bool parse_lval(Lexer *lexer, void *result) {
   if (lexer->current_token.type != TOKEN_IDENTIFIER)
     goto throw;
   lexer_next_token(lexer);
-  node.type = NODE_ID;
+  node.kind = NODE_ID;
   if (consume_str_opt(lexer, SYMBOL, ".") == 0) {
     if (lexer->current_token.type != TOKEN_IDENTIFIER) {
       lexer->pos -= 2;
@@ -1706,7 +1720,7 @@ bool parse_lval(Lexer *lexer, void *result) {
       node.as.field.capacity = 0;
       node.as.field.count = 0;
       node.as.field.items = NULL;
-      node.type = NODE_FIELD;
+      node.kind = NODE_FIELD;
       da_init(&node.as.field, 2);
       da_append(&node.as.field, buf);
       da_append(&node.as.field, lexer->current_token);
@@ -1861,7 +1875,7 @@ bool parse_expr(Lexer *lexer, void *result) {
     break;
   }
   // parsed postfix
-  NodeType binop_t = NODE_INVALID;
+  NodeKind binop_t = NODE_INVALID;
   for (int i =
            consume_str_opt(lexer, SYMBOL, "*", "/", "%", "&&", "+", "-", "||",
                            "~", "==", "!=", "<=", ">=", "<", ">", "&", "|");
@@ -1916,7 +1930,7 @@ bool parse_expr(Lexer *lexer, void *result) {
       binop_t = NODE_BIT_OR;
       break;
     default:
-      UNREACHABLE(temp_sprintf("%s", node_type_to_string(node.type)));
+      UNREACHABLE(temp_sprintf("%s", node_kind_to_string(node.type)));
     }
     if (!parse_expr(lexer, &ast_buf))
       goto throw;
@@ -1992,7 +2006,7 @@ bool parse_type_no_ident(Lexer *lexer, void *result) {
       }
     }
     consume_str(lexer, SYMBOL, "}");
-    node.type = NODE_ENUM;
+    node.kind = NODE_ENUM;
   } else {
     consume_str(lexer, SYMBOL, "{");
     da_init(&node.as.struct_, 8);
@@ -2009,7 +2023,7 @@ bool parse_type_no_ident(Lexer *lexer, void *result) {
       }
     }
     consume_str(lexer, SYMBOL, "}");
-    node.type = NODE_STRUCT;
+    node.kind = NODE_STRUCT;
   }
   *(TypeNoIdent *)result = compose_node(node, lexer);
   nob_log(INFO, "ok typeni");
@@ -2028,7 +2042,7 @@ bool parse_type(Lexer *lexer, void *result) {
   AstNode ast_buf = {0};
   Type node = new_node(Type, lexer);
   if (parse_type_no_ident(lexer, &node.as.other))
-    node.type = NODE_OTHER;
+    node.kind = NODE_OTHER;
   else
     switch (consume_str_opt(lexer, SYMBOL, "(", "[]", "*")) {
     case 0:
@@ -2042,7 +2056,7 @@ bool parse_type(Lexer *lexer, void *result) {
       }
       consume_str(lexer, SYMBOL, ")");
       if (lexer->current_token.type != TOKEN_ARROW) {
-        node.type = NODE_TUPLE;
+        node.kind = NODE_TUPLE;
         break;
       }
       lexer_next_token(lexer);
@@ -2051,22 +2065,22 @@ bool parse_type(Lexer *lexer, void *result) {
       node.as.function.result = malloc(sizeof(Type));
       if (!parse_type(lexer, node.as.function.result))
         goto throw;
-      node.type = NODE_FUNCTION;
+      node.kind = NODE_FUNCTION;
       break;
     case 1:
-      node.type = NODE_SLICE;
+      node.kind = NODE_SLICE;
       node.as.slice = malloc(sizeof(Type));
       if (!parse_type(lexer, node.as.slice))
         goto throw;
       break;
     case 2:
-      node.type = NODE_PTR;
+      node.kind = NODE_PTR;
       node.as.ptr = malloc(sizeof(Type));
       if (!parse_type(lexer, node.as.ptr))
         goto throw;
       break;
     default:
-      node.type = NODE_ID;
+      node.kind = NODE_ID;
       if (lexer->current_token.type != TOKEN_IDENTIFIER)
         goto throw;
       node.as.ident = lexer->current_token;
@@ -2195,28 +2209,28 @@ bool parse_rval(Lexer *lexer, void *result) {
       *lexer = copy;
     }
     consume_str(lexer, SYMBOL, "}");
-    node.type = NODE_SWITCH;
+    node.kind = NODE_SWITCH;
   } else {
     switch (parse_(lexer, ast_buf, type_no_ident, expr, function, lval)) {
     case 1: // expr
       node.as.expr = ast_buf.expr;
-      node.type = NODE_EXPR;
+      node.kind = NODE_EXPR;
       break;
     case 2: // function
       node.as.function = ast_buf.function;
-      node.type = NODE_FUNCTION;
+      node.kind = NODE_FUNCTION;
       break;
     case 0: // type_no_ident
       node.as.type = ast_buf.type_no_ident;
-      node.type = NODE_TYPE;
+      node.kind = NODE_TYPE;
       break;
     case 3: // lval
       node.as.struct_literal.type = box(ast_buf.lval);
-      node.type = NODE_STRUCT_LITERAL;
+      node.kind = NODE_STRUCT_LITERAL;
       // falls through
     default:
       consume_str(lexer, SYMBOL, ".{");
-      node.type = NODE_STRUCT_LITERAL;
+      node.kind = NODE_STRUCT_LITERAL;
       da_init(&node.as.struct_literal.items, 8);
       for (;;) {
         ast_buf.enum_item = (EnumItem){0};
@@ -2247,7 +2261,7 @@ bool parse_assign_eq(Lexer *lexer, void *result) {
     goto throw;
   node.kind = lexer->current_token;
   consume_str(lexer, SYMBOL, "=", ":", "+=", "-=", "*=", "/=", "%=");
-  if (!parse_rval(lexer, &node.rval) || node.rval.type == NODE_TYPE)
+  if (!parse_rval(lexer, &node.rval) || node.rval.kind == NODE_TYPE)
     goto throw;
   *(AssignEq *)result = compose_node(node, lexer);
   nob_log(INFO, "ok assignEq");
@@ -2270,7 +2284,7 @@ bool parse_assign(Lexer *lexer, void *result) {
   Token assign_eq_kind = lexer->current_token;
   switch (consume_str(lexer, SYMBOL, "=", ":", "+=", "-=", "*=", "/=", "%=")) {
   case 0: // =
-    if (!parse_rval(lexer, &node.rval) || node.rval.type == NODE_TYPE)
+    if (!parse_rval(lexer, &node.rval) || node.rval.kind == NODE_TYPE)
       goto throw;
     node.type = NODE_VAL_ASSIGN;
     break;
@@ -2280,7 +2294,7 @@ bool parse_assign(Lexer *lexer, void *result) {
     // nob_log(INFO, "parse_assign: %d, %d", typed, res);
     if (res != -1) {
       if (!parse_rval(lexer, &node.rval) ||
-          (res == 0 && node.rval.type == NODE_TYPE))
+          (res == 0 && node.rval.kind == NODE_TYPE))
         goto throw;
       if (res == 0)
         node.type = typed ? NODE_FULL_ASSIGN : NODE_IMPLIED_ASSIGN;
@@ -2294,7 +2308,7 @@ bool parse_assign(Lexer *lexer, void *result) {
   case 4: // *=
   case 5: // /=
   case 6: // %=
-    if (!parse_rval(lexer, &node.rval) || node.rval.type == NODE_TYPE)
+    if (!parse_rval(lexer, &node.rval) || node.rval.kind == NODE_TYPE)
       goto throw;
     node.type = NODE_ASSIGN_EQ;
     node.assign_eq_kind = assign_eq_kind;
@@ -2623,8 +2637,41 @@ bool parse_program(Lexer *lexer, void *result) {
   return true;
 }
 
+typedef struct SourceFile {
+  String_View src;
+  const char *name;
+} SourceFile;
+static arr_field(SourceFile) stack = {0};
+void source_push(String_View sv, const char *name) {
+  da_append(&stack, ((SourceFile){.src = sv, .name = name}));
+}
+void free_every_source() { da_free(stack); }
+void source_print_segment(const char *message, String_View sv) {
+  iterate(&stack) {
+    if (it->src.data < sv.data && it->src.data + it->src.count > sv.data) {
+      const char *saved = sv.data;
+      int line_n = 1;
+      while (sv.data[-1] != '\n' && sv.data + 1 > it->src.data) {
+        sv.data -= 1;
+        sv.count += 1;
+      }
+      for (const char *ptr = sv.data; ptr >= it->src.data; ptr -= 1) {
+        if (*ptr == '\n')
+          line_n += 1;
+      }
+      sv = sv_trim_right(sv);
+      printf("%s\n%s:%d:%d\n" SV_Fmt "\n", message, it->name, line_n,
+             (int)(saved - sv.data + 1), SV_Arg(sv));
+      return;
+    }
+  }
+  nob_log(ERROR, "segment does not belong to any source file\n%s\n" SV_Fmt,
+          message, SV_Arg(sv));
+}
+
 AstNode parse_source_file(Lexer lexer) {
   AstNode node = {0};
+  source_push(lexer.input, lexer.source_file_path);
   lexer_next_token(&lexer);
 
   parse_program(&lexer, &node);
@@ -2636,8 +2683,10 @@ AstNode parse_source_file(Lexer lexer) {
 
 #define SCOPE_OBJECT_KINDS                                                     \
   X(UNKNOWN)                                                                   \
+  X(FILE)                                                                      \
   X(VALUE)                                                                     \
-  X(CONST_VALUE)
+  X(CONST_VALUE)                                                               \
+  X(SCOPE)
 
 sized_enum(char, ScopeObjectKind){
 #define X(v) SOK_##v,
@@ -2663,58 +2712,406 @@ typedef struct ScopeObject {
   ScopeObjectKind kind;
   union {
     struct {
-      AstNode *type, *value;
+      Type *type;
+      Rval *value;
     } value;
+    HM *file, scope;
   } as;
 } ScopeObject;
 
-// #define predefine_type(_name) \
-//   &(AstNode) { \
-//     .type = NODE_IDENTIFIER, .source = {sizeof(#_name) - 1, #_name}, \
-//     .node = \
-//         &(Identifier){.str = {sizeof(#_name) - 1, #_name}, .builtin = true},
-//         \
-//   }
+const char *_type_type = "type";
+const char *_type_unknown = "unknown";
+const char *_type_string = "string";
+const char *_type_int = "int";
+const char *_type_intl = "intl";
+const char *_type_intll = "intll";
+const char *_type_intu = "intu";
+const char *_type_intul = "intul";
+const char *_type_intull = "intull";
+const char *_type_f32 = "f32";
+const char *_type_f64 = "f64";
+const char *_type_f128 = "f128";
+const char *_type_bool = "bool";
+const char *_type_i8 = "i8";
+const char *_type_i16 = "i16";
+const char *_type_i32 = "i32";
+const char *_type_i64 = "i64";
+const char *_type_i128 = "i128";
+const char *_type_u8 = "u8";
+const char *_type_u16 = "u16";
+const char *_type_u32 = "u32";
+const char *_type_u64 = "u64";
+const char *_type_u128 = "u128";
 
-// AstNode *_type_type = predefine_type(type);
-// AstNode *_type_unknown = predefine_type(unknown);
-// AstNode *_type_string = predefine_type(string);
-// AstNode *_type_int = predefine_type(int);
-// AstNode *_type_intl = predefine_type(intl);
-// AstNode *_type_intll = predefine_type(intll);
-// AstNode *_type_intu = predefine_type(intu);
-// AstNode *_type_intul = predefine_type(intul);
-// AstNode *_type_intull = predefine_type(intull);
-// AstNode *_type_f32 = predefine_type(f32);
-// AstNode *_type_f64 = predefine_type(f64);
-// AstNode *_type_f128 = predefine_type(f128);
-// AstNode *_type_bool = predefine_type(bool);
-// AstNode *_type_i8 = predefine_type(i8);
-// AstNode *_type_i16 = predefine_type(i16);
-// AstNode *_type_i32 = predefine_type(i32);
-// AstNode *_type_i64 = predefine_type(i64);
-// AstNode *_type_i128 = predefine_type(i128);
-// AstNode *_type_u8 = predefine_type(u8);
-// AstNode *_type_u16 = predefine_type(u16);
-// AstNode *_type_u32 = predefine_type(u32);
-// AstNode *_type_u64 = predefine_type(u64);
-// AstNode *_type_u128 = predefine_type(u128);
+#define is_type(t, name) ((t)->as.ident.lexeme.data == _type_##name)
 
-// #undef predefine_type
+void dump_scopes(ScopeStack *scopes) {
+  iterate_back(scopes) {
+    printf("scope: %zu\n", it - scopes->items);
+    for (HM_Iterator i = NULL; HM_iterate(it, &i);) {
+      HM_Entry *ent = HM_entry_index(it, *i);
+      String_View key = sv_trim((String_View){ent->key_len, ent->key});
+      ScopeObject *obj = (ScopeObject *)ent->value;
+      printf("obj " SV_Fmt "\nkind %s\n", SV_Arg(key),
+             sok_to_string(obj->kind));
+      switch (obj->kind) {
+      case SOK_VALUE:
+      case SOK_CONST_VALUE:
+        padded_puts("", 2);
+        if (obj->as.value.type) {
+          printf("| ");
+          print_type(*obj->as.value.type);
+          printf("\n");
+        }
+        if (obj->as.value.value) {
+          printf("| ");
+          print_rval(*obj->as.value.value);
+          printf("\n");
+        }
+        padded_puts("\n", -2);
+        break;
+      default:
+        printf(HERE_FMT " trying to get value of %s\n", HERE,
+               sok_to_string(obj->kind));
+        exit(1);
+      case SOK_FILE:
+      case SOK_SCOPE:
+      }
+    }
+  }
+}
 
-void on_program_parsed(AstCallbackContext context, AstNode *ast);
-void on_statement_parsed(AstCallbackContext context, AstNode *ast);
-void on_program_parsed(AstCallbackContext context, AstNode *ast);
-void on_expr_parsed(AstCallbackContext context, AstNode *ast);
-void on_rval_parsed(AstCallbackContext context, AstNode *ast);
-void on_lval_parsed(AstCallbackContext context, AstNode *ast);
-void on_assign_parsed(AstCallbackContext context, AstNode *ast);
-void on_if_stmt_parsed(AstCallbackContext context, AstNode *ast);
-void on_switch_case_parsed(AstCallbackContext context, AstNode *ast);
-void on_type_parsed(AstCallbackContext context, AstNode *ast);
-void on_type_no_ident_parsed(AstCallbackContext context, AstNode *ast);
-void on_param_item_parsed(AstCallbackContext context, AstNode *ast);
-void on_enum_item_parsed(AstCallbackContext context, AstNode *ast);
+ScopeObject *scope_stack_find_lval_type(ScopeStack *scopes, Lval *node) {
+  // printf(HERE_FMT " %s \n", HERE, node_kind_to_string(node->kind));
+  iterate_back(scopes) {
+    ScopeObject *obj = HM_kwl_get(it, node->source.data, node->source.count);
+    if (obj) {
+      printf("found obj ");
+      print_type(*obj->as.value.type);
+      printf("\n");
+      return obj;
+    }
+  }
+  switch (node->kind) {
+  case NODE_FIELD: {
+    // Lval tmp = {0};
+    // if (node->as.field.count > 1) {
+    //   tmp.kind = NODE_FIELD;
+    //   tmp.as.field = node->as.field;
+    //   tmp.as.field.count -= 1;
+    // } else {
+    //   tmp.kind = NODE_ID;
+    //   tmp.as.id = *node->as.field.items;
+    //   return scope_stack_find_lval(scopes, &tmp);
+    // }
+    ScopeObject *obj = scope_stack_find_lval_type(
+        scopes,
+        &(Lval){.kind = NODE_ID, .source = node->as.field.items->lexeme});
+    if (!obj) {
+      print_lval(*node);
+      printf("\n[ERROR] searching for first token of field lval failed, "
+             "dumping all visible entries\n");
+      dump_scopes(scopes);
+      exit(1);
+      break;
+    }
+    switch (obj->kind) {
+    case SOK_CONST_VALUE:
+    case SOK_VALUE: {
+      for (int depth = 1;;) {
+        Type *type = obj->as.value.type;
+        Rval *val = obj->as.value.value;
+      restart:
+        if (type->kind == NODE_PTR)
+          type = type->as.ptr;
+        // printf("depth: %d; type: %s\n", depth, node_kind_to_string(type->kind));
+        switch (type->kind) {
+        case NODE_PTR:
+          // if (true_once)
+          source_print_segment("Double misdirection is unsupported",
+                               node->source);
+          break;
+        case NODE_ID: {
+          if (is_type(type, type)) {
+            // printf("this lval root is a type!\n");
+            // print_rval(*val);
+            // printf(" %s\n", node_kind_to_string(val->kind));
+            if (val->kind != NODE_TYPE)
+              UNREACHABLE("value should be NODE_TYPE");
+            if (depth == (int)node->as.field.count)
+              return obj;
+            switch (val->as.type.kind) {
+            case NODE_STRUCT: {
+              da_foreach(auto, param_list, &val->as.type.as.struct_) {
+                iterate(&param_list->idents) {
+                  // printf("'" SV_Fmt "' == '" SV_Fmt "' (%s)\n",
+                  //        SV_Arg(it->lexeme),
+                  //        SV_Arg(node->as.field.items[depth].lexeme),
+                  //        sv_eq(it->lexeme, node->as.field.items[depth].lexeme)
+                  //            ? "true"
+                  //            : "false");
+                  if (sv_eq(it->lexeme, node->as.field.items[depth].lexeme)) {
+                    type = &param_list->type;
+                    if (++depth == (int)node->as.field.count) {
+                      HM *scope = &da_last(scopes);
+                      HM_kwl_set(scope, node->source.data, node->source.count,
+                                 &(ScopeObject){
+                                     .kind = SOK_VALUE,
+                                     .as.value.type = type,
+                                     .as.value.value = NULL,
+                                 });
+                      return HM_value_at(scope, &scope->last);
+                    } else
+                      goto restart;
+                  }
+                }
+              }
+            } break;
+            default:
+              UNREACHABLE(temp_sprintf("Caught on unsuspected type %s",
+                                       node_kind_to_string(val->as.type.kind)));
+            }
+            break;
+          }
+
+          obj = scope_stack_find_lval_type(
+              scopes,
+              &(Lval){.kind = NODE_ID, .source = type->as.ident.lexeme});
+          continue;
+
+          printf(HERE_FMT " searching for child {" SV_Fmt "} of (%s){" SV_Fmt
+                          "}\n",
+                 HERE, SV_Arg(da_last(&node->as.field).lexeme),
+                 node_kind_to_string(type->kind),
+                 SV_Arg(sv_trim(type->as.ident.lexeme)));
+          // break;
+        }
+        default: {
+          printf(HERE_FMT " searching for child {" SV_Fmt "} of (%s){" SV_Fmt
+                          "}\n",
+                 HERE, SV_Arg(da_last(&node->as.field).lexeme),
+                 node_kind_to_string(type->kind),
+                 SV_Arg(sv_trim(type->source)));
+        } // , node_type_to_string(obj->as.value.type->kind));
+        }
+        break;
+      }
+    } break;
+    default:
+      print_lval(*node);
+      printf("\n" HERE_FMT " trying to get value of %s\n", HERE,
+             sok_to_string(obj->kind));
+      exit(1);
+    }
+  }
+  default:
+  }
+  return NULL;
+}
+
+bool imply_type_program(Program *node, Type *type);
+bool imply_type_stmt(Stmt *node, Type *type);
+bool imply_type_switch_case(SwitchCase *node, Type *type);
+bool imply_type_case_item(CaseItem *node, Type *type);
+bool imply_type_if_(IfStmt *node, Type *type);
+bool imply_type_for_body(ForBody *node, Type *type);
+bool imply_type_assign(Assign *node, Type *type);
+bool imply_type_assign_eq(AssignEq *node, Type *type);
+bool imply_type_rval(Rval *node, Type *type);
+bool imply_type_function(Function *node, Type *type);
+bool imply_type_param_item(ParamItem *node, Type *type);
+bool imply_type_enum_item(EnumItem *node, Type *type);
+bool imply_type_type(Type *node, Type *type);
+bool imply_type_type_no_ident(TypeNoIdent *node, Type *type);
+bool imply_type_expr(Expr *node, Type *type);
+bool imply_type_lval(Lval *node, Type *type);
+
+ScopeStack *cur_scopes = NULL;
+bool imply_type_rval(Rval *node, Type *type) {
+  switch (node->kind) {
+  case NODE_EXPR:
+    return imply_type_expr(&node->as.expr, type);
+  case NODE_TYPE:
+    *type = (Type){.source = node->source,
+                   .kind = NODE_ID,
+                   .as.ident = (Token){
+                       .lexeme = sv_from_cstr(_type_type),
+                       .type = TOKEN_IDENTIFIER,
+                   }};
+    return true;
+  case NODE_FUNCTION: {
+    int param_count = 0;
+    iterate(&node->as.function.params) param_count += it->idents.count;
+    type->source = node->source;
+    type->kind = NODE_FUNCTION;
+    da_init(&type->as.function.params, param_count);
+    iterate(&node->as.function.params) {
+      da_foreach(auto, id, &it->idents) {
+        UNUSED(id);
+        da_append(&type->as.function.params, it->type);
+      }
+    }
+    if (node->as.function.result)
+      type->as.function.result = node->as.function.result;
+    return true;
+  }
+  case NODE_SWITCH:
+    if (node->as.switch_.rval.count)
+      return imply_type_rval(node->as.switch_.rval.items, type);
+    return false;
+  case NODE_STRUCT_LITERAL:
+    if (node->as.struct_literal.type)
+      return imply_type_lval(node->as.struct_literal.type, type);
+    return false;
+  default:
+    print_rval(*node);
+    printf("\n" HERE_FMT " unable to imply type of <%s>\n", HERE,
+           node_kind_to_string(node->kind));
+    exit(1);
+  }
+  return false;
+}
+bool imply_type_expr(Expr *node, Type *type) {
+  UNUSED(node);
+  UNUSED(type);
+  switch (node->type) {
+  case NODE_STRING:
+    *type = (Type){.source = node->source,
+                   .kind = NODE_PTR,
+                   .as.ptr = box((Type){.source = node->source,
+                                        .kind = NODE_ID,
+                                        .as.ident = (Token){
+                                            .lexeme = sv_from_cstr(_type_u8),
+                                            .type = TOKEN_IDENTIFIER,
+                                        }})};
+    return true;
+  case NODE_TIMES:
+  case NODE_DIVIDE:
+  case NODE_MOD:
+  case NODE_BIT_AND:
+  case NODE_PLUS:
+  case NODE_MINUS:
+  case NODE_BIT_OR:
+  case NODE_BIT_NOT:
+  case NODE_EQUAL:
+  case NODE_NOT_EQUAL:
+  case NODE_LT:
+  case NODE_GT:
+  case NODE_LE:
+  case NODE_GE:
+  case NODE_LOGICAL_OR:
+  case NODE_LOGICAL_AND:
+    return imply_type_expr(node->as.binop.left, type);
+  case NODE_CAST:
+    *type = *node->as.postfix.cast;
+    return true;
+  case NODE_ENUM_VAL: {
+    static bool warned = false;
+    if (!warned)
+      (warned = true,
+       printf(HERE_FMT " implying type of enum values is unsupported for now\n",
+              HERE));
+    return false;
+  }
+  case NODE_VARIABLE: {
+    static bool warned = false;
+    if (!warned)
+      (warned = true,
+       printf(HERE_FMT " implying type of variables is unsupported for now\n",
+              HERE));
+    return false;
+  }
+  case NODE_LITERAL:
+    type->source = node->source;
+    type->kind = NODE_ID;
+    const char *data = token_type_to_string(node->as.literal.type);
+    type->as.ident =
+        (Token){.type = TOKEN_IDENTIFIER, .lexeme = sv_from_cstr(data)};
+    return true;
+  default:
+    print_expr(*node);
+    printf("\n" HERE_FMT " unable to imply type of <%s>\n", HERE,
+           node_kind_to_string(node->type));
+    exit(1);
+  }
+  return false;
+}
+
+bool imply_type_lval(Lval *node, Type *type) {
+  if (!cur_scopes)
+    UNREACHABLE("cur_scopes should be set at this point");
+  ScopeObject *obj = scope_stack_find_lval_type(cur_scopes, node);
+  print_lval(*node);
+  printf("\nsearching for lval: %s\n", obj ? "found" : "none found");
+  if (obj) {
+    switch (obj->kind) {
+    case SOK_VALUE:
+    case SOK_CONST_VALUE:
+      if (is_type(obj->as.value.type, type)) {
+        type->kind = NODE_OTHER;
+        type->as.other = obj->as.value.value->as.type;
+        return true;
+      }
+      *type = *obj->as.value.type;
+      return true;
+    default:
+      printf(HERE_FMT " trying to get value of %s\n", HERE,
+             sok_to_string(obj->kind));
+      exit(1);
+    }
+    return false;
+  }
+  switch (node->kind) {
+  case NODE_ID:
+    // NOTE: possibly push a "unknown value" type into current scope to keep
+    // track of usage of this object
+    return false;
+  case NODE_FIELD:
+    obj = scope_stack_find_lval_type(
+        cur_scopes,
+        &(Lval){.kind = NODE_ID, .source = node->as.field.items->lexeme});
+    if (!obj) {
+      printf("didn't find object for lval above, :(");
+      return false;
+    }
+    switch (obj->kind) {
+    case SOK_VALUE:
+    case SOK_CONST_VALUE:
+      if (obj->as.value.type->kind == NODE_ID && is_type(obj->as.value.type, type)) {
+        type->kind = NODE_OTHER;
+        type->as.other = obj->as.value.value->as.type;
+        return true;
+      }
+      print_type(*obj->as.value.type);
+      printf(" (%s) " HERE_FMT "\n",
+             node_kind_to_string(obj->as.value.type->kind), HERE);
+    default:
+      printf(HERE_FMT " trying to get value of %s\n", HERE,
+             sok_to_string(obj->kind));
+      exit(1);
+    }
+    return false;
+  default:
+    print_lval(*node);
+    printf("\n" HERE_FMT " unable to imply type of <%s>\n", HERE,
+           node_kind_to_string(node->kind));
+    exit(1);
+  }
+}
+void on_program_parsed(AstCallbackContext *context, AstNode *ast);
+void on_statement_parsed(AstCallbackContext *context, AstNode *ast);
+void on_program_parsed(AstCallbackContext *context, AstNode *ast);
+void on_expr_parsed(AstCallbackContext *context, AstNode *ast);
+void on_rval_parsed(AstCallbackContext *context, AstNode *ast);
+void on_lval_parsed(AstCallbackContext *context, AstNode *ast);
+void on_assign_parsed(AstCallbackContext *context, AstNode *ast);
+void on_function_parsed(AstCallbackContext *context, AstNode *ast);
+void on_if_stmt_parsed(AstCallbackContext *context, AstNode *ast);
+void on_switch_case_parsed(AstCallbackContext *context, AstNode *ast);
+void on_type_parsed(AstCallbackContext *context, AstNode *ast);
+void on_type_no_ident_parsed(AstCallbackContext *context, AstNode *ast);
+void on_param_item_parsed(AstCallbackContext *context, AstNode *ast);
+void on_enum_item_parsed(AstCallbackContext *context, AstNode *ast);
 
 #define on_node_parsed(ctx, ast)                                               \
   _Generic((ast),                                                              \
@@ -2731,25 +3128,23 @@ void on_enum_item_parsed(AstCallbackContext context, AstNode *ast);
       ParamItem *: on_param_item_parsed,                                       \
       EnumItem *: on_enum_item_parsed)(ctx, (AstNode *)(ast))
 
-/* Lval */
-void on_lval_parsed(AstCallbackContext context, AstNode *ast) {
+void on_lval_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   Lval *node = (Lval *)ast;
 
-  switch (node->type) {
+  switch (node->kind) {
   case NODE_ID:
   case NODE_FIELD:
     break;
   default:
     UNREACHABLE(
-        temp_sprintf("unexpected node %s", node_type_to_string(node->type)));
+        temp_sprintf("unexpected node %s", node_kind_to_string(node->kind)));
   }
 
   call_ast_callbacks(Lval, ast);
 }
 
-/* Expr */
-void on_expr_parsed(AstCallbackContext context, AstNode *ast) {
+void on_expr_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   Expr *node = (Expr *)ast;
 
@@ -2818,29 +3213,22 @@ void on_expr_parsed(AstCallbackContext context, AstNode *ast) {
     break;
   default:
     UNREACHABLE(
-        temp_sprintf("unexpected node %s", node_type_to_string(node->type)));
+        temp_sprintf("unexpected node %s", node_kind_to_string(node->type)));
   }
 
   call_ast_callbacks(Expr, ast);
 }
 
-/* Rval */
-void on_rval_parsed(AstCallbackContext context, AstNode *ast) {
+void on_rval_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   Rval *node = (Rval *)ast;
 
-  switch (node->type) {
+  switch (node->kind) {
   case NODE_EXPR:
     on_expr_parsed(context, (AstNode *)&node->as.expr);
     break;
   case NODE_FUNCTION:
-    iterate(&node->as.function.params) {
-      on_param_item_parsed(context, (AstNode *)it);
-    }
-    if (node->as.function.result)
-      on_type_parsed(context, (AstNode *)node->as.function.result);
-    if (node->as.function.program)
-      on_program_parsed(context, (AstNode *)node->as.function.program);
+    on_function_parsed(context, (AstNode *)&node->as.function);
     break;
   case NODE_STRUCT_LITERAL:
     if (node->as.struct_literal.type)
@@ -2869,14 +3257,13 @@ void on_rval_parsed(AstCallbackContext context, AstNode *ast) {
     break;
   default:
     UNREACHABLE(
-        temp_sprintf("unexpected node %s", node_type_to_string(node->type)));
+        temp_sprintf("unexpected node %s", node_kind_to_string(node->kind)));
   }
 
   call_ast_callbacks(Rval, ast);
 }
 
-/* AssignEq */
-void on_assign_eq_parsed(AstCallbackContext context, AstNode *ast) {
+void on_assign_eq_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   AssignEq *node = (AssignEq *)ast;
 
@@ -2886,24 +3273,86 @@ void on_assign_eq_parsed(AstCallbackContext context, AstNode *ast) {
   call_ast_callbacks(AssignEq, ast);
 }
 
-/* Assign */
-void on_assign_parsed(AstCallbackContext context, AstNode *ast) {
+void on_assign_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   Assign *node = (Assign *)ast;
 
   on_lval_parsed(context, (AstNode *)&node->lval);
 
-  /* typ may be present */
-  if (node->typ.type != NODE_INVALID)
+  if (node->typ.kind != NODE_INVALID)
     on_type_parsed(context, (AstNode *)&node->typ);
 
   on_rval_parsed(context, (AstNode *)&node->rval);
 
   call_ast_callbacks(Assign, ast);
+
+  Lval *target = &node->lval;
+  Type *type = &node->typ;
+  Rval *val = &node->rval;
+
+  // if (target->type != NODE_ID && true_once)
+  //   return source_print_segment(
+  //       "[ERROR] assigning is only supported for single identifiers for now",
+  //       node->source);
+  cur_scopes = &context->scope_stack;
+  if (type->kind == NODE_INVALID) {
+    if (imply_type_lval(target, type)) {
+      if (target->kind == NODE_FIELD) {
+        // if (true_once)
+        source_print_segment(temp_sprintf("[ERROR] assigning to fields with "
+                                          "known type is ignored for now %s",
+                                          node_kind_to_string(type->kind)),
+                             node->source);
+        return;
+      }
+    } else if (imply_type_rval(val, type)) {
+    } else {
+      printf("\nunable to imply type\n");
+      print_assign(*node);
+      printf("\n<%s>\n", node_kind_to_string(val->kind));
+      return;
+    }
+  }
+  if (type->kind == NODE_TUPLE && true_once)
+    return source_print_segment("[ERROR] tuple types are unsupported for now",
+                                node->source);
+  padded_puts("assign\ntarget: ", 2);
+  print_lval(*target);
+  padded_puts("\ntype:   ");
+  print_type(*type);
+  // padded_puts("\nvalue:  ");
+  // print_rval(*val);
+  padded_puts("\n", -2);
+  {
+    ScopeObject *obj =
+        scope_stack_find_lval_type(&context->scope_stack, target);
+    if (obj && !is_type(obj->as.value.type, type) && obj->as.value.value)
+      return source_print_segment("[ERROR] reassigning is unsupported for now",
+                                  node->source);
+  }
+  HM *cur_scope = &da_last(&context->scope_stack);
+  ScopeObject obj = {0};
+  switch (node->type) {
+  case NODE_IMPLIED_CONST_ASSIGN:
+  case NODE_FULL_CONST_ASSIGN:
+    obj.kind = SOK_CONST_VALUE;
+    break;
+  case NODE_IMPLIED_ASSIGN:
+  case NODE_VAL_ASSIGN:
+    obj.kind = SOK_VALUE;
+    break;
+  default:
+    print_assign(*node);
+    printf("\nwhat?\n");
+    exit(1);
+  }
+  obj.as.value.type = type;
+  obj.as.value.value = val;
+
+  HM_kwl_set(cur_scope, target->source.data, target->source.count, &obj);
 }
 
-/* ForBody */
-void on_for_body_parsed(AstCallbackContext context, AstNode *ast) {
+void on_for_body_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   ForBody *node = (ForBody *)ast;
 
@@ -2912,7 +3361,6 @@ void on_for_body_parsed(AstCallbackContext context, AstNode *ast) {
 
   on_expr_parsed(context, (AstNode *)&node->expr);
 
-  /* end can be assign_eq or expr depending on end_type */
   switch (node->end_type) {
   case NODE_ASSIGN_EQ:
     if (node->end.assign_eq)
@@ -2922,8 +3370,6 @@ void on_for_body_parsed(AstCallbackContext context, AstNode *ast) {
     if (node->end.expr)
       on_expr_parsed(context, (AstNode *)node->end.expr);
     break;
-  case NODE_INVALID:
-    break;
   default:
     break;
   }
@@ -2931,8 +3377,7 @@ void on_for_body_parsed(AstCallbackContext context, AstNode *ast) {
   call_ast_callbacks(ForBody, ast);
 }
 
-/* IfStmt */
-void on_if_stmt_parsed(AstCallbackContext context, AstNode *ast) {
+void on_if_stmt_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   IfStmt *node = (IfStmt *)ast;
 
@@ -2953,14 +3398,13 @@ void on_if_stmt_parsed(AstCallbackContext context, AstNode *ast) {
     break;
   default:
     UNREACHABLE(
-        temp_sprintf("unexpected node %s", node_type_to_string(node->type)));
+        temp_sprintf("unexpected node %s", node_kind_to_string(node->type)));
   }
 
   call_ast_callbacks(IfStmt, ast);
 }
 
-/* CaseItem */
-void on_case_item_parsed(AstCallbackContext context, AstNode *ast) {
+void on_case_item_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   CaseItem *node = (CaseItem *)ast;
 
@@ -2971,8 +3415,7 @@ void on_case_item_parsed(AstCallbackContext context, AstNode *ast) {
   call_ast_callbacks(CaseItem, ast);
 }
 
-/* SwitchCase */
-void on_switch_case_parsed(AstCallbackContext context, AstNode *ast) {
+void on_switch_case_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   SwitchCase *node = (SwitchCase *)ast;
 
@@ -2981,12 +3424,15 @@ void on_switch_case_parsed(AstCallbackContext context, AstNode *ast) {
   call_ast_callbacks(SwitchCase, ast);
 }
 
-/* Function */
-void on_function_parsed(AstCallbackContext context, AstNode *ast) {
-  UNUSED(context);
+void on_function_parsed(AstCallbackContext *context, AstNode *ast) {
   Function *node = (Function *)ast;
 
-  iterate(&node->params) { on_param_item_parsed(context, (AstNode *)it); }
+  HM function_scope = {0};
+  HM_init(&function_scope, sizeof(ScopeObject), 4);
+  da_append(&context->scope_stack, function_scope);
+  printf("function scope created\n");
+
+  iterate(&node->params) on_param_item_parsed(context, (AstNode *)it);
 
   if (node->result)
     on_type_parsed(context, (AstNode *)node->result);
@@ -2994,40 +3440,57 @@ void on_function_parsed(AstCallbackContext context, AstNode *ast) {
     on_program_parsed(context, (AstNode *)node->program);
 
   call_ast_callbacks(Function, ast);
+
+  context->scope_stack.count -= 1;
+  HM *parent_scope = &da_last(&context->scope_stack);
+  HM_kwl_set(
+      parent_scope, node->source.data, node->source.count,
+      &((ScopeObject){.kind = SOK_SCOPE, .as.file = box(function_scope)}));
+  printf("function scope finished\n");
 }
 
-/* ParamItem */
-void on_param_item_parsed(AstCallbackContext context, AstNode *ast) {
+void on_param_item_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   ParamItem *node = (ParamItem *)ast;
 
-  iterate(&node->idents) { /* identifier tokens are leaves */ }
+  on_type_parsed(context, (AstNode *)&node->type);
+
+  call_ast_callbacks(ParamItem, ast);
+
+  HM *cur_scope = &da_last(&context->scope_stack);
+
+  ScopeObject obj = {
+      .kind = is_type(&node->type, type) ? SOK_CONST_VALUE : SOK_VALUE,
+      .as.value.type = &node->type,
+  };
+  iterate(&node->idents) {
+    HM_kwl_set(cur_scope, it->lexeme.data, it->lexeme.count, &obj);
+  }
+}
+
+void on_struct_item_parsed(AstCallbackContext *context, AstNode *ast) {
+  UNUSED(context);
+  ParamItem *node = (ParamItem *)ast;
+
   on_type_parsed(context, (AstNode *)&node->type);
 
   call_ast_callbacks(ParamItem, ast);
 }
 
-/* EnumItem */
-void on_enum_item_parsed(AstCallbackContext context, AstNode *ast) {
+void on_enum_item_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   EnumItem *node = (EnumItem *)ast;
 
-  /* ident token leaf */
   if (node->expr)
     on_expr_parsed(context, (AstNode *)node->expr);
 
   call_ast_callbacks(EnumItem, ast);
 }
-
-/* TypeNoIdent */
-void on_type_no_ident_parsed(AstCallbackContext context, AstNode *ast) {
+void on_type_no_ident_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   TypeNoIdent *node = (TypeNoIdent *)ast;
 
-  switch (node->type) {
-  case NODE_UNKNOWN:
-    // iterate(&tn->as.unknown.items) { /* token leaves */ }
-    break;
+  switch (node->kind) {
   case NODE_ENUM:
     if (node->as.enum_.type)
       on_lval_parsed(context, (AstNode *)node->as.enum_.type);
@@ -3036,24 +3499,67 @@ void on_type_no_ident_parsed(AstCallbackContext context, AstNode *ast) {
     }
     break;
   case NODE_STRUCT:
-    iterate(&node->as.struct_) { on_param_item_parsed(context, (AstNode *)it); }
+    iterate(&node->as.struct_) {
+      on_struct_item_parsed(context, (AstNode *)it);
+    }
     break;
   default:
     UNREACHABLE(
-        temp_sprintf("unexpected node %s", node_type_to_string(node->type)));
+        temp_sprintf("unexpected node %s", node_kind_to_string(node->kind)));
   }
 
   call_ast_callbacks(TypeNoIdent, ast);
 }
 
-/* Type */
-void on_type_parsed(AstCallbackContext context, AstNode *ast) {
+void on_type_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   Type *node = (Type *)ast;
 
-  switch (node->type) {
+  switch (node->kind) {
   case NODE_ID:
-    /* ident token leaf */
+#define check_type_to(name_, res_)                                             \
+  if (node->as.ident.lexeme.data != _type_##res_ &&                            \
+      sv_eq(node->as.ident.lexeme, sv_from_cstr(#name_)))                      \
+  node->as.ident.lexeme.data = _type_##res_
+#define check_type(name_) check_type_to(name_, name_)
+    check_type(type);
+    else check_type(unknown);
+    else check_type(i8);
+    else check_type(u8);
+    else check_type(i16);
+    else check_type(u16);
+    else check_type(i32);
+    else check_type(u32);
+    else check_type(i64);
+    else check_type(u64);
+    else check_type(i128);
+    else check_type(u128);
+    else check_type(f128);
+    else check_type_to(float, f32);
+    else check_type_to(double, f64);
+    else check_type(bool);
+    else check_type_to(_Bool, bool);
+    else check_type(int);
+    else check_type(intu);
+    else check_type(intl);
+    else check_type(intul);
+    else check_type(intll);
+    else check_type(intull);
+    else check_type(string);
+    else check_type_to(char, u8);
+    else check_type_to(int8_t, i8);
+    else check_type_to(int16_t, i16);
+    else check_type_to(int32_t, i32);
+    else check_type_to(int64_t, i64);
+    else check_type_to(int128_t, i128);
+    else check_type_to(uint8_t, u8);
+    else check_type_to(uint16_t, u16);
+    else check_type_to(uint32_t, u32);
+    else check_type_to(uint64_t, u64);
+    else check_type_to(uint128_t, u128);
+    else break;
+#undef check_type
+#undef check_type_to
     break;
   case NODE_OTHER:
     on_type_no_ident_parsed(context, (AstNode *)&node->as.other);
@@ -3078,24 +3584,47 @@ void on_type_parsed(AstCallbackContext context, AstNode *ast) {
     break;
   default:
     UNREACHABLE(
-        temp_sprintf("unexpected node %s", node_type_to_string(node->type)));
+        temp_sprintf("unexpected node %s", node_kind_to_string(node->kind)));
   }
 
   call_ast_callbacks(Type, ast);
 }
 
-/* Program */
-void on_program_parsed(AstCallbackContext context, AstNode *ast) {
-  UNUSED(context);
+void on_program_parsed(AstCallbackContext *context, AstNode *ast) {
   Program *node = (Program *)ast;
 
-  iterate(&node->stmts) { on_statement_parsed(context, (AstNode *)it); }
+  printf("program scope created\n");
+  HM program_scope = {0};
+  HM_init(&program_scope, sizeof(ScopeObject), 4);
+  da_append(&context->scope_stack, program_scope);
+
+  iterate(&node->stmts) {
+    on_statement_parsed(context, (AstNode *)it);
+    (void)1;
+  }
 
   call_ast_callbacks(Program, ast);
+
+  context->scope_stack.count -= 1;
+  HM *parent_scope = &da_last(&context->scope_stack);
+  HM_kwl_set(parent_scope, node->source.data, node->source.count,
+             &((ScopeObject){.kind = SOK_FILE, .as.file = box(program_scope)}));
+  printf("program scope finished\n");
+  for (HM_Iterator i = NULL; HM_iterate(&program_scope, &i);) {
+    HM_Entry *ent = HM_entry_index(&program_scope, *i);
+    String_View key = {ent->key_len, ent->key};
+    ScopeObject *obj = (ScopeObject *)ent->value;
+    printf("obj " SV_Fmt "\n val ", SV_Arg(key));
+    switch (obj->kind) {
+    default:
+      printf(HERE_FMT " trying to get value of %s", HERE,
+             sok_to_string(obj->kind));
+      exit(1);
+    }
+  }
 }
 
-/* Statement */
-void on_statement_parsed(AstCallbackContext context, AstNode *ast) {
+void on_statement_parsed(AstCallbackContext *context, AstNode *ast) {
   UNUSED(context);
   Stmt *node = (Stmt *)ast;
 
@@ -3137,7 +3666,7 @@ void on_statement_parsed(AstCallbackContext context, AstNode *ast) {
     break;
   default:
     UNREACHABLE(
-        temp_sprintf("unexpected node %s", node_type_to_string(node->type)));
+        temp_sprintf("unexpected node %s", node_kind_to_string(node->type)));
   }
 
   call_ast_callbacks(Stmt, ast);
@@ -3181,7 +3710,7 @@ int main(int argc, char **argv) {
 
   seq(let_buf(char, file_buf, 8 << 10),
       let_custom(HM, global_scope,
-                 HM_init(&global_scope, sizeof(ScopeObject), 0),
+                 HM_init(&global_scope, sizeof(ScopeObject), 4),
                  HM_deinit(&global_scope))) {
     String_Builder source_file = {file_buf, 0, 8 << 10};
 
@@ -3196,8 +3725,11 @@ int main(int argc, char **argv) {
     };
     let_custom(Program, program, program = parse_source_file(lexer).program,
                free_node(program)) {
-      AstCallbackContext ctx = {&global_scope, *rest_argv, source_file.items};
-      on_program_parsed(ctx, &(AstNode){program});
+      AstCallbackContext ctx = {{0}, *rest_argv, source_file.items};
+      da_init(&ctx.scope_stack, 4);
+      da_append(&ctx.scope_stack, global_scope);
+
+      on_program_parsed(&ctx, &(AstNode){program});
 
       // for (HM_Iterator i = NULL; HM_iterate(&global_scope, &i);) {
       //   HM_Entry *ent = HM_entry_index(&global_scope, *i);
